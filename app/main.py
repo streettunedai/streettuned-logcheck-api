@@ -15,55 +15,12 @@ def health():
     return {"status": "ok"}
 
 
-def is_mostly_numeric(values):
-    non_empty = [v.strip() for v in values if v.strip()]
-    if not non_empty:
-        return False
-
-    numeric_count = 0
-    for v in non_empty:
-        test = v.replace(".", "", 1).replace("-", "", 1)
-        if test.isdigit():
-            numeric_count += 1
-
-    return numeric_count / len(non_empty) >= 0.8
-
-
-def score_header(values):
-    non_empty = [v.strip() for v in values if v.strip()]
-    if len(non_empty) < 3:
-        return -999
-
-    score = 0
-
-    # penalize rows that are mostly numeric IDs
-    if is_mostly_numeric(non_empty):
-        score -= 100
-
-    # reward rows that look like real channel names
-    for v in non_empty:
-        lower = v.lower()
-
-        if any(ch.isalpha() for ch in v):
-            score += 2
-
-        if " " in v or "_" in v or "/" in v or "(" in v or ")" in v:
-            score += 2
-
-        if lower in {
-            "time", "rpm", "map", "maf", "spark", "iat", "ect", "tps",
-            "lambda", "wideband", "boost", "knock", "stft", "ltft"
-        }:
-            score += 8
-
-        if any(term in lower for term in [
-            "pressure", "temp", "temperature", "advance", "injector",
-            "spark", "fuel", "throttle", "pedal", "commanded", "desired",
-            "airflow", "eq ratio", "lambda", "knock", "boost", "speed"
-        ]):
-            score += 4
-
-    return score
+def next_nonempty_csv_row(lines, start_index):
+    for i in range(start_index, len(lines)):
+        line = lines[i].strip()
+        if line and "," in line and not line.startswith("["):
+            return i, [c.strip() for c in line.split(",")]
+    return None, []
 
 
 @app.post("/validate")
@@ -91,23 +48,17 @@ async def validate(file: UploadFile = File(...)):
 
     lines = text.splitlines()
 
-    header_index = None
-    columns = []
-    best_score = -999
+    channel_info_index = None
+    channel_data_index = None
 
-    for i, line in enumerate(lines[:50]):
-        if "," not in line:
-            continue
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped == "[Channel Information]":
+            channel_info_index = i
+        elif stripped == "[Channel Data]":
+            channel_data_index = i
 
-        possible_cols = [c.strip() for c in line.split(",")]
-        current_score = score_header(possible_cols)
-
-        if current_score > best_score:
-            best_score = current_score
-            header_index = i
-            columns = possible_cols
-
-    if header_index is None or best_score < 0:
+    if channel_info_index is None:
         return {
             "status": "ok",
             "platform": "unknown",
@@ -120,14 +71,33 @@ async def validate(file: UploadFile = File(...)):
             "row_count": 0,
             "column_count": 0,
             "columns": [],
-            "message": "No usable CSV header row found"
+            "message": "Missing [Channel Information] section"
         }
 
-    data_text = "\n".join(lines[header_index:])
-    reader = csv.reader(io.StringIO(data_text))
-    parsed_rows = list(reader)
+    ids_index, ids_row = next_nonempty_csv_row(lines, channel_info_index + 1)
+    names_index, names_row = next_nonempty_csv_row(lines, (ids_index + 1) if ids_index is not None else channel_info_index + 1)
+    units_index, units_row = next_nonempty_csv_row(lines, (names_index + 1) if names_index is not None else channel_info_index + 1)
 
-    if len(parsed_rows) < 2:
+    if names_index is None or not names_row:
+        return {
+            "status": "ok",
+            "platform": "unknown",
+            "filename": file.filename,
+            "content_type": file.content_type,
+            "size_bytes": size_bytes,
+            "readable": False,
+            "header_found": False,
+            "header_row_index": None,
+            "row_count": 0,
+            "column_count": 0,
+            "columns": [],
+            "message": "Could not find channel names row"
+        }
+
+    columns = names_row
+    header_index = names_index
+
+    if channel_data_index is None:
         return {
             "status": "ok",
             "platform": "unknown",
@@ -140,11 +110,32 @@ async def validate(file: UploadFile = File(...)):
             "row_count": 0,
             "column_count": len(columns),
             "columns": columns,
-            "message": "Header found but no data rows found"
+            "message": "Missing [Channel Data] section"
         }
 
-    data_rows = parsed_rows[1:]
-    row_count = len(data_rows)
+    first_data_index, first_data_row = next_nonempty_csv_row(lines, channel_data_index + 1)
+
+    if first_data_index is None:
+        return {
+            "status": "ok",
+            "platform": "unknown",
+            "filename": file.filename,
+            "content_type": file.content_type,
+            "size_bytes": size_bytes,
+            "readable": False,
+            "header_found": True,
+            "header_row_index": header_index,
+            "row_count": 0,
+            "column_count": len(columns),
+            "columns": columns,
+            "message": "No data rows found"
+        }
+
+    data_text = "\n".join(lines[first_data_index:])
+    reader = csv.reader(io.StringIO(data_text))
+    parsed_rows = list(reader)
+    row_count = len(parsed_rows)
+
     lower_cols = [c.lower() for c in columns]
 
     platform = "unknown"
@@ -152,7 +143,7 @@ async def validate(file: UploadFile = File(...)):
     ls_markers = [
         "rpm", "map", "maf", "spark", "iat", "ect",
         "stft", "ltft", "injector", "knock", "wideband",
-        "lambda", "throttle", "pedal"
+        "air-fuel ratio", "equivalence ratio", "throttle"
     ]
     diesel_markers = [
         "rail pressure", "desired rail", "main injection",
@@ -177,6 +168,9 @@ async def validate(file: UploadFile = File(...)):
         "readable": True,
         "header_found": True,
         "header_row_index": header_index,
+        "channel_ids_row_index": ids_index,
+        "units_row_index": units_index,
+        "first_data_row_index": first_data_index,
         "row_count": row_count,
         "column_count": len(columns),
         "columns": columns
