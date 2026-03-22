@@ -1,5 +1,4 @@
 from fastapi import FastAPI, UploadFile, File
-from fastapi import FastAPI, UploadFile, File
 import csv
 import io
 
@@ -13,12 +12,42 @@ def root():
 def health():
     return {"status": "ok"}
 
+def is_mostly_numeric(values):
+    non_empty = [v.strip() for v in values if v.strip()]
+    if not non_empty:
+        return False
+
+    numeric_count = 0
+    for v in non_empty:
+        try:
+            float(v)
+            numeric_count += 1
+        except ValueError:
+            pass
+
+    return numeric_count / len(non_empty) >= 0.7
+
+def is_likely_header(values):
+    non_empty = [v.strip() for v in values if v.strip()]
+    if len(non_empty) < 3:
+        return False
+
+    if is_mostly_numeric(non_empty):
+        return False
+
+    textish_count = 0
+    for v in non_empty:
+        has_alpha = any(ch.isalpha() for ch in v)
+        if has_alpha:
+            textish_count += 1
+
+    return textish_count / len(non_empty) >= 0.4
+
 @app.post("/validate")
 async def validate(file: UploadFile = File(...)):
     contents = await file.read()
     size_bytes = len(contents)
 
-    # basic file decode
     try:
         text = contents.decode("utf-8-sig", errors="replace")
     except Exception:
@@ -38,22 +67,21 @@ async def validate(file: UploadFile = File(...)):
 
     lines = text.splitlines()
 
-    header_row = None
     header_index = None
     columns = []
 
-    # find first likely header row
-    for i, line in enumerate(lines[:50]):
-        if "," in line:
-            possible_cols = [c.strip() for c in line.split(",")]
-            non_empty = [c for c in possible_cols if c]
-            if len(non_empty) >= 3:
-                header_row = line
-                header_index = i
-                columns = possible_cols
-                break
+    for i, line in enumerate(lines[:80]):
+        if "," not in line:
+            continue
 
-    if header_row is None:
+        possible_cols = [c.strip() for c in line.split(",")]
+
+        if is_likely_header(possible_cols):
+            header_index = i
+            columns = possible_cols
+            break
+
+    if header_index is None:
         return {
             "status": "ok",
             "platform": "unknown",
@@ -65,12 +93,11 @@ async def validate(file: UploadFile = File(...)):
             "row_count": 0,
             "column_count": 0,
             "columns": [],
-            "message": "No usable CSV header row found"
+            "message": "No usable text-based CSV header row found"
         }
 
     data_text = "\n".join(lines[header_index:])
     reader = csv.reader(io.StringIO(data_text))
-
     parsed_rows = list(reader)
 
     if len(parsed_rows) < 2:
@@ -92,17 +119,18 @@ async def validate(file: UploadFile = File(...)):
     row_count = len(data_rows)
     lower_cols = [c.lower() for c in columns]
 
-    # simple platform guess
     platform = "unknown"
 
     ls_markers = [
         "rpm", "map", "maf", "spark", "iat", "ect",
-        "stft", "ltft", "injector", "knock", "wideband"
+        "stft", "ltft", "injector", "knock", "wideband",
+        "throttle", "commanded eq", "lambda", "afr"
     ]
     diesel_markers = [
         "rail pressure", "desired rail", "main injection",
         "pilot injection", "vane position", "soi", "mm3",
-        "fuel rail pressure", "boost pressure desired"
+        "fuel rail pressure", "boost pressure desired",
+        "desired boost", "actual boost"
     ]
 
     ls_hits = sum(1 for marker in ls_markers if any(marker in col for col in lower_cols))
@@ -125,4 +153,4 @@ async def validate(file: UploadFile = File(...)):
         "row_count": row_count,
         "column_count": len(columns),
         "columns": columns
-        }
+    }
