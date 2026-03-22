@@ -12,9 +12,13 @@ def health():
 
 @app.post("/validate")
 async def validate(file: UploadFile = File(...)):
+    contents = await file.read()
+    size_bytes = len(contents)
+
     return {
         "status": "ready",
         "platform": "ls_gas",
         "filename": file.filename,
-        "content_type": file.content_type
+        "content_type": file.content_type,
+        "size_bytes": size_bytes
     }
