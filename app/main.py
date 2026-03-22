@@ -18,7 +18,7 @@ def health():
 def next_nonempty_csv_row(lines, start_index):
     for i in range(start_index, len(lines)):
         line = lines[i].strip()
-        if line and "," in line and not line.startswith("["):
+        if line and "," in line and "[" not in line:
             return i, [c.strip() for c in line.split(",")]
     return None, []
 
@@ -52,10 +52,9 @@ async def validate(file: UploadFile = File(...)):
     channel_data_index = None
 
     for i, line in enumerate(lines):
-        stripped = line.strip()
-        if stripped == "[Channel Information]":
+        if "[Channel Information]" in line:
             channel_info_index = i
-        elif stripped == "[Channel Data]":
+        if "[Channel Data]" in line:
             channel_data_index = i
 
     if channel_info_index is None:
@@ -75,8 +74,14 @@ async def validate(file: UploadFile = File(...)):
         }
 
     ids_index, ids_row = next_nonempty_csv_row(lines, channel_info_index + 1)
-    names_index, names_row = next_nonempty_csv_row(lines, (ids_index + 1) if ids_index is not None else channel_info_index + 1)
-    units_index, units_row = next_nonempty_csv_row(lines, (names_index + 1) if names_index is not None else channel_info_index + 1)
+    names_index, names_row = next_nonempty_csv_row(
+        lines,
+        ids_index + 1 if ids_index is not None else channel_info_index + 1
+    )
+    units_index, units_row = next_nonempty_csv_row(
+        lines,
+        names_index + 1 if names_index is not None else channel_info_index + 1
+    )
 
     if names_index is None or not names_row:
         return {
