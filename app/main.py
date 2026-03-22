@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile, File
 
 app = FastAPI()
 
@@ -10,7 +10,11 @@ def root():
 def health():
     return {"status": "ok"}
 
-
 @app.post("/validate")
-def validate():
-    return {"status": "ready", "platform": "ls_gas"}
+async def validate(file: UploadFile = File(...)):
+    return {
+        "status": "ready",
+        "platform": "ls_gas",
+        "filename": file.filename,
+        "content_type": file.content_type
+    }
