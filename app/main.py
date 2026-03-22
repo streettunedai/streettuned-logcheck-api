@@ -125,4 +125,4 @@ async def validate(file: UploadFile = File(...)):
         "row_count": row_count,
         "column_count": len(columns),
         "columns": columns
-    }    }
+        }
