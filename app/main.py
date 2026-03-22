@@ -1,20 +1,3 @@
-from fastapi import FastAPI, UploadFile, File
-import csv
-import io
-
-app = FastAPI()
-
-
-@app.get("/")
-def root():
-    return {"message": "StreetTunedAI LogCheck API is running"}
-
-
-@app.get("/health")
-def health():
-    return {"status": "ok"}
-
-
 def parse_csv_upload(contents: bytes):
     size_bytes = len(contents)
 
@@ -33,12 +16,35 @@ def parse_csv_upload(contents: bytes):
     header_index = None
     columns = []
 
-    # find first likely header row within first 50 lines
-    for i, line in enumerate(lines[:50]):
+    def is_mostly_numeric(values):
+        cleaned = [v.strip() for v in values if v.strip()]
+        if not cleaned:
+            return False
+
+        numeric_count = 0
+        for v in cleaned:
+            test = v.replace(".", "", 1).replace("-", "", 1)
+            if test.isdigit():
+                numeric_count += 1
+
+        return (numeric_count / len(cleaned)) >= 0.7
+
+    def looks_like_real_header(values):
+        cleaned = [v.strip() for v in values if v.strip()]
+        if len(cleaned) < 3:
+            return False
+
+        if is_mostly_numeric(cleaned):
+            return False
+
+        alpha_count = sum(1 for v in cleaned if any(ch.isalpha() for ch in v))
+        return alpha_count >= 3
+
+    # find first likely real header row within first 80 lines
+    for i, line in enumerate(lines[:80]):
         if "," in line:
             possible_cols = [c.strip() for c in line.split(",")]
-            non_empty = [c for c in possible_cols if c]
-            if len(non_empty) >= 3:
+            if looks_like_real_header(possible_cols):
                 header_row = line
                 header_index = i
                 columns = possible_cols
@@ -69,7 +75,6 @@ def parse_csv_upload(contents: bytes):
     row_count = len(data_rows)
     lower_cols = [c.lower() for c in columns]
 
-    # platform guess
     platform = "unknown"
 
     ls_markers = [
@@ -134,130 +139,4 @@ def parse_csv_upload(contents: bytes):
         "looks_like_hptuners": looks_like_hptuners,
         "recommended_next_step": recommended_next_step,
         "lower_cols": lower_cols,
-    }
-
-
-@app.post("/validate")
-async def validate(file: UploadFile = File(...)):
-    contents = await file.read()
-    parsed = parse_csv_upload(contents)
-
-    if not parsed["ok"]:
-        return {
-            "status": "error",
-            "platform": "unknown",
-            "filename": file.filename,
-            "content_type": file.content_type,
-            "size_bytes": parsed.get("size_bytes", len(contents)),
-            "readable": False,
-            "header_found": parsed.get("header_found", False),
-            "header_row_index": parsed.get("header_row_index"),
-            "row_count": parsed.get("row_count", 0),
-            "column_count": len(parsed.get("columns", [])),
-            "columns": parsed.get("columns", []),
-            "message": parsed.get("message", "File could not be parsed")
-        }
-
-    return {
-        "status": "ready",
-        "platform": parsed["platform"],
-        "filename": file.filename,
-        "content_type": file.content_type,
-        "size_bytes": parsed["size_bytes"],
-        "readable": True,
-        "header_found": parsed["header_found"],
-        "header_row_index": parsed["header_row_index"],
-        "row_count": parsed["row_count"],
-        "column_count": parsed["column_count"],
-        "columns": parsed["columns"],
-        "has_rpm": parsed["has_rpm"],
-        "has_map": parsed["has_map"],
-        "has_maf": parsed["has_maf"],
-        "has_spark": parsed["has_spark"],
-        "has_kr": parsed["has_kr"],
-        "has_wideband": parsed["has_wideband"],
-        "looks_like_hptuners": parsed["looks_like_hptuners"],
-        "recommended_next_step": parsed["recommended_next_step"]
-    }
-
-
-@app.post("/analyze")
-async def analyze(file: UploadFile = File(...)):
-    contents = await file.read()
-    parsed = parse_csv_upload(contents)
-
-    if not parsed["ok"]:
-        return {
-            "status": "error",
-            "platform": "unknown",
-            "filename": file.filename,
-            "content_type": file.content_type,
-            "size_bytes": parsed.get("size_bytes", len(contents)),
-            "readable": False,
-            "message": parsed.get("message", "File could not be parsed")
-        }
-
-    columns = parsed["columns"]
-    lower_cols = parsed["lower_cols"]
-
-    missing_for_review = []
-    if not parsed["has_rpm"]:
-        missing_for_review.append("RPM")
-    if not parsed["has_map"]:
-        missing_for_review.append("MAP")
-    if not parsed["has_maf"]:
-        missing_for_review.append("MAF")
-    if not parsed["has_spark"]:
-        missing_for_review.append("Spark")
-    if not parsed["has_kr"]:
-        missing_for_review.append("Knock Retard")
-    if not parsed["has_wideband"]:
-        missing_for_review.append("Wideband or Lambda")
-
-    has_pe = any("power enrichment" in col for col in lower_cols)
-    has_dfco = any("dfco active" in col for col in lower_cols)
-    has_iat = any("iat" in col or "intake air temp" in col for col in lower_cols)
-    has_ect = any("ect" in col or "engine coolant temp" in col for col in lower_cols)
-    has_stft = any("short term fuel trim" in col or "stft" in col for col in lower_cols)
-    has_ltft = any("long term fuel trim" in col or "ltft" in col for col in lower_cols)
-    has_throttle = any("throttle" in col for col in lower_cols)
-    has_pedal = any("accelerator pedal" in col or "pedal position" in col for col in lower_cols)
-
-    likely_usable_for_real_review = (
-        parsed["has_rpm"] and
-        (parsed["has_map"] or parsed["has_maf"]) and
-        parsed["has_spark"] and
-        parsed["has_kr"]
-    )
-
-    return {
-        "status": "analyzed",
-        "platform": parsed["platform"],
-        "filename": file.filename,
-        "content_type": file.content_type,
-        "size_bytes": parsed["size_bytes"],
-        "readable": True,
-        "looks_like_hptuners": parsed["looks_like_hptuners"],
-        "row_count": parsed["row_count"],
-        "column_count": parsed["column_count"],
-        "has_rpm": parsed["has_rpm"],
-        "has_map": parsed["has_map"],
-        "has_maf": parsed["has_maf"],
-        "has_spark": parsed["has_spark"],
-        "has_kr": parsed["has_kr"],
-        "has_wideband": parsed["has_wideband"],
-        "has_pe": has_pe,
-        "has_dfco": has_dfco,
-        "has_iat": has_iat,
-        "has_ect": has_ect,
-        "has_stft": has_stft,
-        "has_ltft": has_ltft,
-        "has_throttle": has_throttle,
-        "has_pedal": has_pedal,
-        "likely_usable_for_real_review": likely_usable_for_real_review,
-        "missing_for_review": missing_for_review,
-        "recommended_next_step": (
-            "proceed_to_log_summary" if likely_usable_for_real_review else "log_missing_channels"
-        ),
-        "detected_columns_sample": columns[:20]
     }
