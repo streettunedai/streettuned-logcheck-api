@@ -2,40 +2,147 @@ from fastapi import FastAPI, File, UploadFile
 
 app = FastAPI()
 
+
 @app.get("/")
 def root():
     return {"status": "ok"}
+
 
 @app.get("/health")
 def health():
     return {"status": "healthy"}
 
+
 def parse_uploaded_csv(raw_bytes):
     import io
+    import csv
     import pandas as pd
 
     encodings = ["utf-8-sig", "utf-8", "utf-16", "cp1252"]
-
     last_error = None
+
+    header_tokens = [
+        "engine rpm",
+        "knock retard",
+        "throttle position",
+        "intake manifold absolute pressure",
+        "equivalence ratio commanded",
+        "mass airflow",
+        "vehicle speed",
+        "accelerator pedal position",
+        "air-fuel ratio commanded",
+        "ethanol fuel %",
+        "dfco active",
+        "power enrichment",
+    ]
+
+    def looks_like_number(value):
+        try:
+            float(str(value).strip().replace(",", ""))
+            return True
+        except Exception:
+            return False
+
+    def row_score(row):
+        text_cells = [str(x).strip() for x in row]
+        joined = " | ".join(text_cells).lower()
+        score = 0
+        for token in header_tokens:
+            if token in joined:
+                score += 1
+        return score
 
     for enc in encodings:
         try:
             text = raw_bytes.decode(enc, errors="replace")
             text = text.replace("\x00", "")
 
-            df = pd.read_csv(
-                io.StringIO(text),
-                sep=None,
-                engine="python",
-                on_bad_lines="skip"
-            )
+            sample = text[:5000]
+            try:
+                dialect = csv.Sniffer().sniff(sample, delimiters=",;\t|")
+                sep = dialect.delimiter
+            except Exception:
+                sep = ","
+
+            reader = csv.reader(io.StringIO(text), delimiter=sep)
+            rows = [row for row in reader if row and any(str(cell).strip() for cell in row)]
+
+            if not rows:
+                return {
+                    "status": "error",
+                    "message": "CSV file was empty"
+                }
+
+            header_row_index = None
+            best_score = 0
+
+            for i, row in enumerate(rows[:80]):
+                score = row_score(row)
+                if score > best_score:
+                    best_score = score
+                    header_row_index = i
+
+            if header_row_index is None or best_score == 0:
+                return {
+                    "status": "error",
+                    "message": "Could not find HP Tuners header row"
+                }
+
+            header_row = [str(x).strip() for x in rows[header_row_index]]
+            col_count = len(header_row)
+
+            # Deduplicate header names
+            seen = {}
+            clean_headers = []
+            for idx, col in enumerate(header_row):
+                name = col if col else f"unnamed_{idx}"
+                if name in seen:
+                    seen[name] += 1
+                    name = f"{name}_{seen[name]}"
+                else:
+                    seen[name] = 0
+                clean_headers.append(name)
+
+            # Find first real data row after header.
+            # Skip channel-id row / units row / empty rows.
+            first_data_row_index = None
+            for i in range(header_row_index + 1, min(len(rows), header_row_index + 12)):
+                row = rows[i]
+                padded = row + [""] * (col_count - len(row))
+                padded = padded[:col_count]
+
+                numeric_count = sum(1 for cell in padded if looks_like_number(cell))
+                if numeric_count >= max(3, min(8, col_count // 4)):
+                    first_data_row_index = i
+                    break
+
+            if first_data_row_index is None:
+                return {
+                    "status": "error",
+                    "message": "Could not find first data row"
+                }
+
+            data_rows = []
+            for row in rows[first_data_row_index:]:
+                padded = [str(x).strip() for x in row] + [""] * (col_count - len(row))
+                padded = padded[:col_count]
+                data_rows.append(padded)
+
+            df = pd.DataFrame(data_rows, columns=clean_headers)
+
+            # Drop junk blank columns
+            for col in df.columns:
+                df[col] = df[col].replace("", pd.NA)
 
             df = df.dropna(axis=1, how="all")
 
             return {
                 "status": "ready",
-                "dataframe": df
+                "dataframe": df,
+                "header_row_index": header_row_index,
+                "first_data_row_index": first_data_row_index,
             }
+
         except Exception as e:
             last_error = str(e)
 
@@ -43,6 +150,7 @@ def parse_uploaded_csv(raw_bytes):
         "status": "error",
         "message": f"Could not parse CSV: {last_error}"
     }
+
 
 @app.post("/analyze")
 async def analyze(file: UploadFile = File(...)):
@@ -188,6 +296,8 @@ async def analyze(file: UploadFile = File(...)):
         "size_bytes": size_bytes,
         "row_count": int(len(df)),
         "column_count": int(len(df.columns)),
+        "header_row_index": parse.get("header_row_index"),
+        "first_data_row_index": parse.get("first_data_row_index"),
         "summary": summary,
         "unit_sanity": {
             "map": map_info
