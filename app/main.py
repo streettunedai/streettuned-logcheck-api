@@ -2,6 +2,14 @@ from fastapi import FastAPI, File, UploadFile
 
 app = FastAPI()
 
+@app.get("/")
+def root():
+    return {"status": "ok"}
+
+@app.get("/health")
+def health():
+    return {"status": "healthy"}
+
 @app.post("/analyze")
 async def analyze(file: UploadFile = File(...)):
     import pandas as pd
