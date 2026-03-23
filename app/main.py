@@ -1,889 +1,1230 @@
-from fastapi import FastAPI, File, UploadFile
+from __future__ import annotations
 
-app = FastAPI()
+import io
+import math
+import re
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Tuple
 
+import numpy as np
+import pandas as pd
+from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.responses import JSONResponse
+
+app = FastAPI(title="StreetTunedAI Log Analyzer", version="1.0.0")
+
+
+# =========================
+# Configuration / constants
+# =========================
+
+NUMERIC_FFILL_SEC = 0.20
+STATUS_FFILL_SEC = 0.50
+
+SAE_EQUIV = {
+    "rpm": ["Engine RPM", "Engine RPM (SAE)"],
+    "ect": ["Engine Coolant Temp", "Engine Coolant Temp (SAE)"],
+    "iat": ["Intake Air Temp", "Intake Air Temp (SAE)"],
+    "maf_gps": ["Mass Airflow", "Mass Airflow (SAE)"],
+    "stft_b1": ["Short Term Fuel Trim Bank 1", "Short Term Fuel Trim Bank 1 (SAE)"],
+    "stft_b2": ["Short Term Fuel Trim Bank 2", "Short Term Fuel Trim Bank 2 (SAE)"],
+    "ltft_b1": ["Long Term Fuel Trim Bank 1", "Long Term Fuel Trim Bank 1 (SAE)"],
+    "ltft_b2": ["Long Term Fuel Trim Bank 2", "Long Term Fuel Trim Bank 2 (SAE)"],
+    "ethanol_pct": ["Ethanol Fuel %", "Ethanol Fuel % (SAE)"],
+    "fuel_rail_pressure": ["Fuel Rail Pressure", "Fuel Rail Pressure (SAE)"],
+    "fuel_rail_pressure_rel": ["Fuel Rail Pressure (Relative)", "Fuel Rail Pressure (Relative) (SAE)"],
+    "map_kpa": ["Intake Manifold Absolute Pressure", "Intake Manifold Absolute Pressure (SAE)"],
+    "baro_kpa": ["Barometric Pressure", "Barometric Pressure (SAE)"],
+    "battery_v": ["Control Module Voltage", "Control Module Voltage (SAE)"],
+    "spark_deg": ["Timing Advance", "Timing Advance (SAE)"],
+    "kr_deg": ["Knock Retard", "Total Knock Retard"],
+    "tps_pct": ["Throttle Position", "Throttle Position (SAE)"],
+    "fuel_sys1": ["Fuel System #1 Status", "Fuel System #1 Status (SAE)"],
+    "eq_cmd": ["Equivalence Ratio Commanded", "Equivalence Ratio Commanded (SAE)"],
+}
+
+RAW_ALIAS_GROUPS: Dict[str, List[str]] = {
+    "Time_sec": [
+        "Time",
+        "Time (s)",
+        "Time [s]",
+        "Offset",
+        "Elapsed Time",
+        "Timestamp",
+        "Time Stamp",
+    ],
+    "RPM": [
+        "Engine RPM",
+        "Engine RPM (SAE)",
+    ],
+    "ECT": [
+        "Engine Coolant Temp",
+        "Engine Coolant Temp (SAE)",
+        "Coolant Temp",
+    ],
+    "IAT": [
+        "Intake Air Temp",
+        "Intake Air Temp (SAE)",
+        "Intake Air Temperature",
+    ],
+    "MAF_gps": [
+        "Mass Airflow",
+        "Mass Airflow (SAE)",
+        "MAF Airflow Rate",
+    ],
+    "InjectorPW_B1_ms": [
+        "Injector Pulse Width Avg. Bank 1",
+        "Injector Pulse Width Bank 1",
+        "Injector PW Avg Bank 1",
+    ],
+    "InjectorPW_B2_ms": [
+        "Injector Pulse Width Avg. Bank 2",
+        "Injector Pulse Width Bank 2",
+        "Injector PW Avg Bank 2",
+    ],
+    "STFT_B1": [
+        "Short Term Fuel Trim Bank 1",
+        "Short Term Fuel Trim Bank 1 (SAE)",
+    ],
+    "STFT_B2": [
+        "Short Term Fuel Trim Bank 2",
+        "Short Term Fuel Trim Bank 2 (SAE)",
+    ],
+    "LTFT_B1": [
+        "Long Term Fuel Trim Bank 1",
+        "Long Term Fuel Trim Bank 1 (SAE)",
+    ],
+    "LTFT_B2": [
+        "Long Term Fuel Trim Bank 2",
+        "Long Term Fuel Trim Bank 2 (SAE)",
+    ],
+    "ThrottleDesired_pct": [
+        "Throttle Desired Position",
+    ],
+    "ThrottleCommanded_pct": [
+        "Commanded Throttle Actuator (SAE)",
+        "Commanded Throttle Actuator",
+    ],
+    "ThrottleActual_pct": [
+        "Throttle Position",
+        "Throttle Position (SAE)",
+        "Throttle Position Sensor",
+        "Throttle Position Sensor 2",
+    ],
+    "MAP_kPa": [
+        "Intake Manifold Absolute Pressure",
+        "Intake Manifold Absolute Pressure (SAE)",
+        "MAP",
+        "MAP Sensor",
+    ],
+    "BoostRelatedPressure_kPa": [
+        "Supercharger Inlet Pressure",
+    ],
+    "BoostRelatedVacuum_kPa": [
+        "Supercharger Inlet Vacuum",
+    ],
+    "AFR_Act_External": [
+        "MPVI2.1 -> AEM-4110",
+        "AEM-4110",
+        "MPVI2.1 AEM-4110",
+    ],
+    "FuelRailPressure": [
+        "Fuel Rail Pressure",
+        "Fuel Rail Pressure (SAE)",
+    ],
+    "FuelRailPressureRel": [
+        "Fuel Rail Pressure (Relative)",
+        "Fuel Rail Pressure (Relative) (SAE)",
+    ],
+    "Ethanol_pct": [
+        "Ethanol Fuel %",
+        "Ethanol Fuel % (SAE)",
+    ],
+    "PE_Status": [
+        "Power Enrichment",
+    ],
+    "ClosedLoopActive": [
+        "Closed Loop Active",
+    ],
+    "Battery_V": [
+        "Control Module Voltage",
+        "Control Module Voltage (SAE)",
+    ],
+    "Baro_kPa": [
+        "Barometric Pressure",
+        "Barometric Pressure (SAE)",
+    ],
+    "Spark_deg": [
+        "Timing Advance",
+        "Timing Advance (SAE)",
+    ],
+    "KR_deg": [
+        "Knock Retard",
+        "Total Knock Retard",
+    ],
+    "OilPressure": [
+        "Oil Pressure",
+        "Engine Oil Pressure",
+        "Oil Pressure (SAE)",
+    ],
+    "FuelPressure": [
+        "Fuel Pressure",
+        "Fuel Pressure (SAE)",
+        "Fuel Pump Pressure",
+    ],
+    "EqCmd": [
+        "Equivalence Ratio Commanded",
+        "Equivalence Ratio Commanded (SAE)",
+    ],
+    "AfrCmd": [
+        "Air-Fuel Ratio Commanded",
+        "Commanded AFR",
+    ],
+    "FuelSys1_Status": [
+        "Fuel System #1 Status",
+        "Fuel System #1 Status (SAE)",
+    ],
+}
+
+REQUIRED_CANONICAL = [
+    "Time_sec",
+    "RPM",
+    "ECT",
+    "IAT",
+    "MAF_gps",
+    "InjectorPW_B1_ms",
+    "InjectorPW_B2_ms",
+    "STFT_B1",
+    "STFT_B2",
+    "LTFT_B1",
+    "LTFT_B2",
+    "ThrottleDesired_pct",
+    "ThrottleCommanded_pct",
+    "ThrottleActual_pct",
+    "MAP_kPa",
+    "BoostRelatedPressure_kPa",
+    "BoostRelatedVacuum_kPa",
+    "AFR_Act_External",
+    "FuelRailPressure",
+    "FuelRailPressureRel",
+    "Ethanol_pct",
+    "PE_Status",
+    "ClosedLoopActive",
+    "Battery_V",
+    "Baro_kPa",
+    "Spark_deg",
+    "KR_deg",
+]
+
+TEXT_TRUE = {"on", "true", "yes", "enabled", "active", "closed loop", "power enrichment", "1"}
+TEXT_FALSE = {"off", "false", "no", "disabled", "inactive", "open loop", "0"}
+
+
+# =========================
+# Helpers
+# =========================
+
+def clean_name(x: Any) -> str:
+    s = "" if x is None else str(x)
+    s = s.replace("\ufeff", "").strip()
+    s = re.sub(r"\s+", " ", s)
+    return s
+
+
+def slug(x: str) -> str:
+    s = clean_name(x).lower()
+    s = re.sub(r"[^a-z0-9]+", "", s)
+    return s
+
+
+def try_float_series(series: pd.Series) -> pd.Series:
+    if pd.api.types.is_numeric_dtype(series):
+        return pd.to_numeric(series, errors="coerce")
+    s = series.astype(str).str.strip()
+    s = s.str.replace(",", "", regex=False)
+    s = s.str.replace("%", "", regex=False)
+    s = s.replace({"": np.nan, "nan": np.nan, "None": np.nan, "null": np.nan})
+    return pd.to_numeric(s, errors="coerce")
+
+
+def detect_header_and_data_row(lines: List[str]) -> Tuple[int, int]:
+    best_header = 0
+    best_score = -1
+    best_data = 1
+
+    for i in range(min(len(lines), 60)):
+        line = lines[i]
+        if not line.strip():
+            continue
+        parts = [clean_name(p) for p in line.split(",")]
+        nonempty = sum(1 for p in parts if p)
+        score = 0
+
+        if nonempty >= 4:
+            score += nonempty
+
+        joined = " | ".join(parts).lower()
+        keywords = [
+            "rpm",
+            "throttle",
+            "pressure",
+            "fuel",
+            "spark",
+            "maf",
+            "iat",
+            "coolant",
+            "knock",
+            "equivalence",
+            "barometric",
+            "ethanol",
+            "closed loop",
+            "power enrichment",
+            "aem",
+            "mpvi2.1",
+        ]
+        score += sum(2 for k in keywords if k in joined)
+
+        if "offset" in joined or "time" in joined:
+            score += 4
+
+        candidate_data = i + 1
+        for j in range(i + 1, min(len(lines), i + 8)):
+            row = [clean_name(p) for p in lines[j].split(",")]
+            nums = sum(1 for p in row if re.fullmatch(r"-?\d+(\.\d+)?", p or ""))
+            if nums >= max(2, len(row) // 4):
+                candidate_data = j
+                score += 5
+                break
+
+        if score > best_score:
+            best_score = score
+            best_header = i
+            best_data = candidate_data
+
+    return best_header, best_data
+
+
+def load_csv_with_detected_header(raw: bytes) -> Tuple[pd.DataFrame, int, int]:
+    text = raw.decode("utf-8-sig", errors="replace")
+    lines = text.splitlines()
+    if not lines:
+        raise HTTPException(status_code=400, detail="Empty file")
+
+    header_row, first_data_row = detect_header_and_data_row(lines)
+    df = pd.read_csv(
+        io.StringIO(text),
+        header=header_row,
+        skip_blank_lines=False,
+        low_memory=False,
+        dtype=str,
+        engine="python",
+        on_bad_lines="skip",
+    )
+    df.columns = [clean_name(c) for c in df.columns]
+    df = df.dropna(how="all").reset_index(drop=True)
+
+    # Remove repeated header rows that sometimes appear inside logs
+    if len(df) > 0:
+        header_slugs = [slug(c) for c in df.columns]
+        keep_rows = []
+        for _, row in df.iterrows():
+            vals = [slug(clean_name(v)) for v in row.tolist()]
+            if vals == header_slugs:
+                keep_rows.append(False)
+            else:
+                keep_rows.append(True)
+        df = df.loc[keep_rows].reset_index(drop=True)
+
+    return df, header_row, first_data_row
+
+
+def build_alias_lookup() -> Dict[str, List[str]]:
+    lookup: Dict[str, List[str]] = {}
+    for canon, names in RAW_ALIAS_GROUPS.items():
+        all_names = list(dict.fromkeys(names))
+        lookup[canon] = all_names
+    return lookup
+
+
+ALIAS_LOOKUP = build_alias_lookup()
+
+
+def select_matching_columns(columns: List[str], aliases: List[str]) -> List[str]:
+    col_slug_map = {c: slug(c) for c in columns}
+    alias_slugs = {slug(a) for a in aliases}
+    out = []
+    for col, col_s in col_slug_map.items():
+        if col_s in alias_slugs:
+            out.append(col)
+    return out
+
+
+def series_is_flatline_numeric(s: pd.Series, tolerance: float = 1e-9) -> bool:
+    x = try_float_series(s).dropna()
+    if len(x) < 5:
+        return False
+    return float(x.max() - x.min()) <= tolerance
+
+
+def series_plausible_percent(s: pd.Series) -> bool:
+    x = try_float_series(s).dropna()
+    if len(x) < 5:
+        return False
+    return (x.between(-2, 105).mean() >= 0.90) and (x.max() - x.min() >= 0.5)
+
+
+def series_plausible_afr(s: pd.Series, rpm: Optional[pd.Series] = None) -> bool:
+    x = try_float_series(s).dropna()
+    if len(x) < 5:
+        return False
+    if series_is_flatline_numeric(x):
+        return False
+    # Gas AFR scale plausibility
+    plausible = x.between(7.0, 22.0).mean() >= 0.90
+    if not plausible:
+        return False
+    if rpm is not None:
+        r = try_float_series(rpm).reindex_like(s)
+        running_mask = r.fillna(0) > 500
+        if running_mask.any():
+            xr = try_float_series(s)[running_mask].dropna()
+            if len(xr) >= 5 and xr.between(8.0, 19.5).mean() < 0.90:
+                return False
+    return True
+
+
+def series_plausible_map_kpa(s: pd.Series, rpm: Optional[pd.Series], baro: Optional[pd.Series]) -> Tuple[bool, str]:
+    x = try_float_series(s)
+    valid = x.dropna()
+    if len(valid) < 5:
+        return False, "insufficient_data"
+
+    if valid.between(5, 315).mean() < 0.90:
+        return False, "out_of_range"
+
+    if rpm is not None:
+        r = try_float_series(rpm).reindex_like(x).fillna(0)
+        running = r > 500
+        if running.any():
+            xr = x[running].dropna()
+            if len(xr) >= 5:
+                if xr.between(10, 315).mean() < 0.90:
+                    return False, "running_out_of_range"
+                if baro is not None:
+                    b = try_float_series(baro).reindex_like(x).fillna(method="ffill")
+                    if len(b.dropna()) > 0:
+                        # Constant implausibly low MAP while clearly running
+                        if (xr < 15).mean() > 0.80:
+                            return False, "implausibly_low_while_running"
+                        if (xr > 220).mean() > 0.90 and (b.dropna().median() < 120):
+                            return False, "implausibly_high_while_running"
+    return True, "ok"
+
+
+def fill_sparse_channels(df: pd.DataFrame, time_col: str) -> pd.DataFrame:
+    if time_col not in df.columns:
+        return df
+
+    out = df.copy()
+    t = try_float_series(out[time_col])
+
+    if t.isna().all():
+        return out
+
+    out[time_col] = t
+    for col in out.columns:
+        if col == time_col:
+            continue
+
+        raw = out[col]
+        numeric = try_float_series(raw)
+        numeric_valid = numeric.notna().sum()
+        total_valid = raw.notna().sum()
+
+        is_numeric_like = numeric_valid >= max(3, int(total_valid * 0.50)) if total_valid > 0 else False
+
+        if is_numeric_like:
+            last_idx = None
+            last_val = None
+            filled = []
+            for idx, val in numeric.items():
+                ti = t.loc[idx]
+                if pd.notna(val):
+                    last_idx = idx
+                    last_val = val
+                    filled.append(val)
+                else:
+                    if last_idx is not None and pd.notna(ti) and pd.notna(t.loc[last_idx]):
+                        dt = float(ti - t.loc[last_idx])
+                        if 0 <= dt <= NUMERIC_FFILL_SEC:
+                            filled.append(last_val)
+                        else:
+                            filled.append(np.nan)
+                    else:
+                        filled.append(np.nan)
+            out[col] = pd.Series(filled, index=out.index)
+        else:
+            s = raw.astype(str).replace({"nan": np.nan, "None": np.nan, "": np.nan})
+            last_idx = None
+            last_val = None
+            filled = []
+            for idx, val in s.items():
+                ti = t.loc[idx]
+                if pd.notna(val):
+                    last_idx = idx
+                    last_val = val
+                    filled.append(val)
+                else:
+                    if last_idx is not None and pd.notna(ti) and pd.notna(t.loc[last_idx]):
+                        dt = float(ti - t.loc[last_idx])
+                        if 0 <= dt <= STATUS_FFILL_SEC:
+                            filled.append(last_val)
+                        else:
+                            filled.append(np.nan)
+                    else:
+                        filled.append(np.nan)
+            out[col] = pd.Series(filled, index=out.index)
+
+    return out
+
+
+def convert_status_to_bool(series: pd.Series) -> pd.Series:
+    def _map(v: Any) -> Optional[bool]:
+        if pd.isna(v):
+            return np.nan
+        s = clean_name(v).lower()
+        if s in TEXT_TRUE:
+            return True
+        if s in TEXT_FALSE:
+            return False
+        try:
+            f = float(s)
+            return f != 0.0
+        except Exception:
+            return np.nan
+
+    return series.map(_map)
+
+
+def choose_best_percent_column(df: pd.DataFrame, candidates: List[str]) -> Tuple[Optional[str], Optional[pd.Series], Optional[str]]:
+    scored: List[Tuple[float, str, pd.Series]] = []
+    reasons: Dict[str, str] = {}
+    for col in candidates:
+        s = try_float_series(df[col])
+        valid = s.dropna()
+        if len(valid) < 5:
+            reasons[col] = "insufficient_data"
+            continue
+        if not series_plausible_percent(s):
+            reasons[col] = "implausible_percent_scale"
+            continue
+        score = float(valid.notna().sum()) + float(valid.between(0, 100).mean()) * 100.0 - float(series_is_flatline_numeric(valid)) * 50.0
+        scored.append((score, col, s))
+        reasons[col] = "ok"
+
+    if not scored:
+        return None, None, None
+    scored.sort(reverse=True, key=lambda x: x[0])
+    _, col, series = scored[0]
+    return col, series, reasons.get(col, "ok")
+
+
+def choose_best_numeric_column(df: pd.DataFrame, candidates: List[str], plausibility_fn=None) -> Tuple[Optional[str], Optional[pd.Series], Optional[str]]:
+    scored: List[Tuple[float, str, pd.Series]] = []
+    reasons: Dict[str, str] = {}
+    for col in candidates:
+        s = try_float_series(df[col])
+        valid = s.dropna()
+        if len(valid) < 3:
+            reasons[col] = "insufficient_data"
+            continue
+        if plausibility_fn is not None:
+            ok, reason = plausibility_fn(s)
+            if not ok:
+                reasons[col] = reason
+                continue
+            reasons[col] = "ok"
+        else:
+            reasons[col] = "ok"
+        score = float(valid.notna().sum()) - float(series_is_flatline_numeric(valid)) * 50.0
+        scored.append((score, col, s))
+
+    if not scored:
+        return None, None, None
+    scored.sort(reverse=True, key=lambda x: x[0])
+    _, col, series = scored[0]
+    return col, series, reasons.get(col, "ok")
+
+
+@dataclass
+class ChannelSelection:
+    canonical: str
+    selected_column: Optional[str] = None
+    candidates: List[str] = field(default_factory=list)
+    reason: str = "missing"
+    trust: str = "missing"  # confirmed / suspect / invalid / uncertain / missing
+    data: Optional[pd.Series] = None
+
+
+def build_channel_map(df: pd.DataFrame) -> Dict[str, ChannelSelection]:
+    cols = list(df.columns)
+    selections: Dict[str, ChannelSelection] = {}
+
+    for canonical, aliases in ALIAS_LOOKUP.items():
+        candidates = select_matching_columns(cols, aliases)
+        selections[canonical] = ChannelSelection(canonical=canonical, candidates=candidates)
+
+    # Time
+    time_candidates = selections["Time_sec"].candidates
+    time_col = None
+    time_reason = "missing"
+    if time_candidates:
+        for col in time_candidates:
+            s = try_float_series(df[col])
+            if s.dropna().shape[0] >= 3:
+                time_col = col
+                time_reason = "ok"
+                break
+    selections["Time_sec"].selected_column = time_col
+    selections["Time_sec"].reason = time_reason
+    selections["Time_sec"].trust = "confirmed" if time_col else "missing"
+    selections["Time_sec"].data = try_float_series(df[time_col]) if time_col else None
+
+    # Simple numerics first
+    def basic_numeric(canon: str):
+        if not selections[canon].candidates:
+            selections[canon].reason = "missing"
+            selections[canon].trust = "missing"
+            return
+        col, series, reason = choose_best_numeric_column(df, selections[canon].candidates)
+        selections[canon].selected_column = col
+        selections[canon].data = series
+        selections[canon].reason = reason or "missing"
+        selections[canon].trust = "confirmed" if col else "missing"
+
+    for canon in [
+        "RPM",
+        "ECT",
+        "IAT",
+        "MAF_gps",
+        "InjectorPW_B1_ms",
+        "InjectorPW_B2_ms",
+        "STFT_B1",
+        "STFT_B2",
+        "LTFT_B1",
+        "LTFT_B2",
+        "FuelRailPressure",
+        "FuelRailPressureRel",
+        "Ethanol_pct",
+        "Battery_V",
+        "Baro_kPa",
+        "Spark_deg",
+        "KR_deg",
+        "BoostRelatedPressure_kPa",
+        "BoostRelatedVacuum_kPa",
+        "ThrottleDesired_pct",
+        "ThrottleCommanded_pct",
+    ]:
+        basic_numeric(canon)
+
+    # PE / CL status
+    for canon in ["PE_Status", "ClosedLoopActive", "FuelSys1_Status"]:
+        cands = selections[canon].candidates
+        if not cands:
+            selections[canon].trust = "missing"
+            selections[canon].reason = "missing"
+            continue
+        best = cands[0]
+        selections[canon].selected_column = best
+        selections[canon].data = df[best]
+        selections[canon].reason = "ok"
+        selections[canon].trust = "confirmed"
+
+    # MAP with trust check
+    map_cands = selections["MAP_kPa"].candidates
+    rpm_series = selections["RPM"].data
+    baro_series = selections["Baro_kPa"].data
+    if map_cands:
+        best_score = -1e9
+        best_col = None
+        best_series = None
+        best_reason = "missing"
+        best_trust = "missing"
+        for col in map_cands:
+            s = try_float_series(df[col])
+            ok, reason = series_plausible_map_kpa(s, rpm_series, baro_series)
+            score = s.notna().sum()
+            if not ok:
+                score -= 1000
+            if score > best_score:
+                best_score = score
+                best_col = col
+                best_series = s
+                best_reason = reason
+                best_trust = "confirmed" if ok else "suspect"
+        selections["MAP_kPa"].selected_column = best_col
+        selections["MAP_kPa"].data = best_series
+        selections["MAP_kPa"].reason = best_reason
+        selections["MAP_kPa"].trust = best_trust
+    else:
+        selections["MAP_kPa"].reason = "missing"
+        selections["MAP_kPa"].trust = "missing"
+
+    # External AFR / AEM trust
+    afr_cands = selections["AFR_Act_External"].candidates
+    if afr_cands:
+        best_score = -1e9
+        best_col = None
+        best_series = None
+        best_reason = "missing"
+        best_trust = "missing"
+        for col in afr_cands:
+            s = try_float_series(df[col])
+            ok = series_plausible_afr(s, rpm=rpm_series)
+            score = s.notna().sum()
+            if not ok:
+                score -= 1000
+            if score > best_score:
+                best_score = score
+                best_col = col
+                best_series = s
+                best_reason = "ok" if ok else "implausible_or_flatline"
+                best_trust = "confirmed" if ok else "invalid"
+        selections["AFR_Act_External"].selected_column = best_col
+        selections["AFR_Act_External"].data = best_series
+        selections["AFR_Act_External"].reason = best_reason
+        selections["AFR_Act_External"].trust = best_trust
+    else:
+        selections["AFR_Act_External"].reason = "missing"
+        selections["AFR_Act_External"].trust = "missing"
+
+    # Throttle actual selection
+    actual_cands = selections["ThrottleActual_pct"].candidates
+    if actual_cands:
+        col, series, reason = choose_best_percent_column(df, actual_cands)
+        selections["ThrottleActual_pct"].selected_column = col
+        selections["ThrottleActual_pct"].data = series
+        selections["ThrottleActual_pct"].reason = reason or "missing"
+        selections["ThrottleActual_pct"].trust = "confirmed" if col else "suspect"
+    else:
+        selections["ThrottleActual_pct"].reason = "missing"
+        selections["ThrottleActual_pct"].trust = "missing"
+
+    return selections
+
+
+def avg_bank(series1: Optional[pd.Series], series2: Optional[pd.Series]) -> Optional[pd.Series]:
+    if series1 is None and series2 is None:
+        return None
+    if series1 is None:
+        return try_float_series(series2)
+    if series2 is None:
+        return try_float_series(series1)
+    a = try_float_series(series1)
+    b = try_float_series(series2)
+    return pd.concat([a, b], axis=1).mean(axis=1, skipna=True)
+
+
+def classify_operating_mode(
+    rpm: Optional[pd.Series],
+    map_kpa: Optional[pd.Series],
+    map_trust: str,
+    baro_kpa: Optional[pd.Series],
+    boost_pressure: Optional[pd.Series],
+    boost_vacuum: Optional[pd.Series],
+) -> Tuple[str, Dict[str, Any], List[str]]:
+    evidence: Dict[str, Any] = {}
+    uncertain_reasons: List[str] = []
+
+    if rpm is None:
+        return "uncertain", {"reason": "missing_rpm"}, ["missing_rpm"]
+
+    r = try_float_series(rpm)
+    running = r > 500
+    if not running.any():
+        return "unknown", {"reason": "not_running"}, []
+
+    map_running = try_float_series(map_kpa)[running] if map_kpa is not None else pd.Series(dtype=float)
+    baro_running = try_float_series(baro_kpa)[running] if baro_kpa is not None else pd.Series(dtype=float)
+    bp_running = try_float_series(boost_pressure)[running] if boost_pressure is not None else pd.Series(dtype=float)
+    bv_running = try_float_series(boost_vacuum)[running] if boost_vacuum is not None else pd.Series(dtype=float)
+
+    map_med = float(map_running.median()) if len(map_running.dropna()) else None
+    baro_med = float(baro_running.median()) if len(baro_running.dropna()) else None
+    bp_med = float(bp_running.median()) if len(bp_running.dropna()) else None
+    bv_med = float(bv_running.median()) if len(bv_running.dropna()) else None
+
+    evidence["map_median_kpa"] = map_med
+    evidence["baro_median_kpa"] = baro_med
+    evidence["sc_inlet_pressure_median"] = bp_med
+    evidence["sc_inlet_vacuum_median"] = bv_med
+    evidence["map_trust"] = map_trust
+
+    if map_trust != "confirmed":
+        uncertain_reasons.append("map_suspect")
+
+    delta = None
+    if map_med is not None and baro_med is not None:
+        delta = map_med - baro_med
+        evidence["map_minus_baro_kpa"] = delta
+
+    boost_signal_present = False
+    if bp_med is not None and abs(bp_med) > 1.0:
+        boost_signal_present = True
+    if bv_med is not None and abs(bv_med) > 1.0:
+        boost_signal_present = True
+
+    if delta is None and not boost_signal_present:
+        return "uncertain", evidence, ["insufficient_boost_evidence"]
+
+    if delta is not None:
+        if delta > 5:
+            base_mode = "boost"
+        elif delta < -5:
+            base_mode = "vacuum_or_na"
+        else:
+            base_mode = "near_baro"
+    else:
+        base_mode = "unknown"
+
+    if boost_signal_present and base_mode in {"vacuum_or_na", "near_baro"}:
+        uncertain_reasons.append("map_conflicts_with_boost_related_channels")
+
+    if uncertain_reasons:
+        return "uncertain", evidence, uncertain_reasons
+
+    if base_mode == "boost":
+        return "boost", evidence, []
+    if base_mode in {"vacuum_or_na", "near_baro"}:
+        return "na", evidence, []
+    return "uncertain", evidence, ["unable_to_classify"]
+
+
+def detect_invalid_flat_zero_pressure(series: Optional[pd.Series], rpm: Optional[pd.Series]) -> bool:
+    if series is None or rpm is None:
+        return False
+    s = try_float_series(series)
+    r = try_float_series(rpm)
+    running = r > 500
+    if not running.any():
+        return False
+    x = s[running].dropna()
+    if len(x) < 5:
+        return False
+    return float((x == 0).mean()) >= 0.95
+
+
+def detect_idle_segments(time_s: Optional[pd.Series], rpm: Optional[pd.Series], throttle_actual: Optional[pd.Series]) -> List[Dict[str, Any]]:
+    if time_s is None or rpm is None:
+        return []
+    t = try_float_series(time_s)
+    r = try_float_series(rpm)
+    thr = try_float_series(throttle_actual) if throttle_actual is not None else pd.Series(index=t.index, dtype=float)
+
+    mask = (r.between(500, 1100)) & ((thr.isna()) | (thr <= 10))
+    segments = []
+    start_idx = None
+    for idx, flag in mask.fillna(False).items():
+        if flag and start_idx is None:
+            start_idx = idx
+        elif not flag and start_idx is not None:
+            end_idx = idx - 1 if isinstance(idx, int) else idx
+            t0 = t.loc[start_idx]
+            t1 = t.loc[end_idx]
+            if pd.notna(t0) and pd.notna(t1) and (t1 - t0) >= 1.0:
+                rr = r.loc[start_idx:end_idx]
+                segments.append({
+                    "start_sec": float(t0),
+                    "end_sec": float(t1),
+                    "duration_sec": float(t1 - t0),
+                    "avg_rpm": float(rr.mean(skipna=True)),
+                })
+            start_idx = None
+    if start_idx is not None:
+        end_idx = mask.index[-1]
+        t0 = t.loc[start_idx]
+        t1 = t.loc[end_idx]
+        if pd.notna(t0) and pd.notna(t1) and (t1 - t0) >= 1.0:
+            rr = r.loc[start_idx:end_idx]
+            segments.append({
+                "start_sec": float(t0),
+                "end_sec": float(t1),
+                "duration_sec": float(t1 - t0),
+                "avg_rpm": float(rr.mean(skipna=True)),
+            })
+    return segments
+
+
+def extract_kr_events(time_s: Optional[pd.Series], rpm: Optional[pd.Series], kr: Optional[pd.Series], spark: Optional[pd.Series]) -> List[Dict[str, Any]]:
+    if time_s is None or kr is None:
+        return []
+    t = try_float_series(time_s)
+    k = try_float_series(kr)
+    r = try_float_series(rpm) if rpm is not None else pd.Series(index=t.index, dtype=float)
+    sp = try_float_series(spark) if spark is not None else pd.Series(index=t.index, dtype=float)
+
+    mask = k.fillna(0) > 0.0
+    events = []
+    active = False
+    start = None
+
+    for idx, flag in mask.items():
+        if flag and not active:
+            active = True
+            start = idx
+        elif not flag and active:
+            end = idx - 1 if isinstance(idx, int) else idx
+            events.append({
+                "start_sec": float(t.loc[start]) if pd.notna(t.loc[start]) else None,
+                "end_sec": float(t.loc[end]) if pd.notna(t.loc[end]) else None,
+                "peak_kr_deg": float(k.loc[start:end].max(skipna=True)),
+                "avg_rpm": float(r.loc[start:end].mean(skipna=True)) if len(r.loc[start:end].dropna()) else None,
+                "avg_spark_deg": float(sp.loc[start:end].mean(skipna=True)) if len(sp.loc[start:end].dropna()) else None,
+            })
+            active = False
+            start = None
+    if active and start is not None:
+        end = mask.index[-1]
+        events.append({
+            "start_sec": float(t.loc[start]) if pd.notna(t.loc[start]) else None,
+            "end_sec": float(t.loc[end]) if pd.notna(t.loc[end]) else None,
+            "peak_kr_deg": float(k.loc[start:end].max(skipna=True)),
+            "avg_rpm": float(r.loc[start:end].mean(skipna=True)) if len(r.loc[start:end].dropna()) else None,
+            "avg_spark_deg": float(sp.loc[start:end].mean(skipna=True)) if len(sp.loc[start:end].dropna()) else None,
+        })
+    return events
+
+
+def compute_trim_summary(stft_b1: Optional[pd.Series], stft_b2: Optional[pd.Series], ltft_b1: Optional[pd.Series], ltft_b2: Optional[pd.Series]) -> Dict[str, Any]:
+    stft_avg = avg_bank(stft_b1, stft_b2)
+    ltft_avg = avg_bank(ltft_b1, ltft_b2)
+    total = None
+    if stft_avg is not None or ltft_avg is not None:
+        a = try_float_series(stft_avg) if stft_avg is not None else pd.Series(dtype=float)
+        b = try_float_series(ltft_avg) if ltft_avg is not None else pd.Series(dtype=float)
+        total = pd.concat([a, b], axis=1).sum(axis=1, min_count=1)
+
+    return {
+        "stft_avg_mean": float(stft_avg.mean(skipna=True)) if stft_avg is not None and len(stft_avg.dropna()) else None,
+        "ltft_avg_mean": float(ltft_avg.mean(skipna=True)) if ltft_avg is not None and len(ltft_avg.dropna()) else None,
+        "combined_trim_mean": float(total.mean(skipna=True)) if total is not None and len(total.dropna()) else None,
+    }
+
+
+def select_analysis_channels(df: pd.DataFrame) -> Tuple[Dict[str, Any], Dict[str, ChannelSelection]]:
+    selections = build_channel_map(df)
+
+    # Time-based sparse fill after initial time channel selection
+    time_col = selections["Time_sec"].selected_column
+    if time_col:
+        df_filled = fill_sparse_channels(df, time_col)
+        selections = build_channel_map(df_filled)
+    else:
+        df_filled = df
+
+    return {
+        "df": df_filled,
+    }, selections
+
+
+def build_trust_buckets(selections: Dict[str, ChannelSelection]) -> Dict[str, List[str]]:
+    confirmed = []
+    suspect = []
+    missing = []
+    invalid = []
+    uncertain = []
+
+    for canon, sel in selections.items():
+        entry = f"{canon}:{sel.selected_column}" if sel.selected_column else canon
+        if sel.trust == "confirmed":
+            confirmed.append(entry)
+        elif sel.trust == "suspect":
+            suspect.append(entry)
+        elif sel.trust == "invalid":
+            invalid.append(entry)
+        elif sel.trust == "uncertain":
+            uncertain.append(entry)
+        else:
+            missing.append(entry)
+
+    return {
+        "confirmed_channels": sorted(confirmed),
+        "suspect_channels": sorted(suspect),
+        "missing_channels": sorted(missing),
+        "invalid_channels": sorted(invalid),
+        "uncertain_channels": sorted(uncertain),
+    }
+
+
+def analyze_df(df: pd.DataFrame, filename: str, header_row: int, first_data_row: int) -> Dict[str, Any]:
+    context, selections = select_analysis_channels(df)
+    dff = context["df"]
+
+    time_s = selections["Time_sec"].data
+    rpm = selections["RPM"].data
+    ect = selections["ECT"].data
+    iat = selections["IAT"].data
+    maf = selections["MAF_gps"].data
+    injpw_b1 = selections["InjectorPW_B1_ms"].data
+    injpw_b2 = selections["InjectorPW_B2_ms"].data
+    stft_b1 = selections["STFT_B1"].data
+    stft_b2 = selections["STFT_B2"].data
+    ltft_b1 = selections["LTFT_B1"].data
+    ltft_b2 = selections["LTFT_B2"].data
+    map_kpa = selections["MAP_kPa"].data
+    baro = selections["Baro_kPa"].data
+    pe = selections["PE_Status"].data
+    cl = selections["ClosedLoopActive"].data
+    batt = selections["Battery_V"].data
+    spark = selections["Spark_deg"].data
+    kr = selections["KR_deg"].data
+    sc_inlet_p = selections["BoostRelatedPressure_kPa"].data
+    sc_inlet_v = selections["BoostRelatedVacuum_kPa"].data
+    afr_ext = selections["AFR_Act_External"].data
+    throttle_des = selections["ThrottleDesired_pct"].data
+    throttle_cmd = selections["ThrottleCommanded_pct"].data
+    throttle_act = selections["ThrottleActual_pct"].data
+    fuel_rail = selections["FuelRailPressure"].data
+    fuel_rail_rel = selections["FuelRailPressureRel"].data
+    ethanol = selections["Ethanol_pct"].data
+    oil_pressure = selections["OilPressure"].data if "OilPressure" in selections else None
+    fuel_pressure = selections["FuelPressure"].data if "FuelPressure" in selections else None
+
+    if time_s is not None:
+        time_s = try_float_series(time_s)
+    if rpm is not None:
+        rpm = try_float_series(rpm)
+
+    # Preserve existing flat-zero junk sender handling
+    oil_invalid_flat_zero = detect_invalid_flat_zero_pressure(oil_pressure, rpm)
+    fuel_invalid_flat_zero = detect_invalid_flat_zero_pressure(fuel_pressure, rpm)
+
+    if oil_invalid_flat_zero:
+        if "OilPressure" in selections:
+            selections["OilPressure"].trust = "invalid"
+            selections["OilPressure"].reason = "flat_zero_invalid_sender"
+    if fuel_invalid_flat_zero:
+        if "FuelPressure" in selections:
+            selections["FuelPressure"].trust = "invalid"
+            selections["FuelPressure"].reason = "flat_zero_invalid_sender"
+
+    operating_mode, op_evidence, op_uncertain = classify_operating_mode(
+        rpm=rpm,
+        map_kpa=map_kpa,
+        map_trust=selections["MAP_kPa"].trust,
+        baro_kpa=baro,
+        boost_pressure=sc_inlet_p,
+        boost_vacuum=sc_inlet_v,
+    )
+    if operating_mode == "uncertain":
+        selections["MAP_kPa"].trust = "uncertain" if selections["MAP_kPa"].trust != "invalid" else selections["MAP_kPa"].trust
+        selections["MAP_kPa"].reason = ", ".join(op_uncertain) if op_uncertain else selections["MAP_kPa"].reason
+        if selections["BoostRelatedPressure_kPa"].selected_column:
+            selections["BoostRelatedPressure_kPa"].trust = "uncertain"
+        if selections["BoostRelatedVacuum_kPa"].selected_column:
+            selections["BoostRelatedVacuum_kPa"].trust = "uncertain"
+
+    pe_bool = convert_status_to_bool(pe) if pe is not None else pd.Series(dtype=bool)
+    cl_bool = convert_status_to_bool(cl) if cl is not None else pd.Series(dtype=bool)
+
+    throttle_mismatch = None
+    throttle_mismatch_pct_mean = None
+    throttle_mismatch_pct_max = None
+    if throttle_des is not None and throttle_act is not None:
+        td = try_float_series(throttle_des)
+        ta = try_float_series(throttle_act)
+        delta = td - ta
+        throttle_mismatch = delta.abs() > 5.0
+        if len(delta.dropna()) > 0:
+            throttle_mismatch_pct_mean = float(delta.abs().mean(skipna=True))
+            throttle_mismatch_pct_max = float(delta.abs().max(skipna=True))
+
+    trim_summary = compute_trim_summary(stft_b1, stft_b2, ltft_b1, ltft_b2)
+    injpw_avg = avg_bank(injpw_b1, injpw_b2)
+
+    idle_segments = detect_idle_segments(time_s, rpm, throttle_act)
+    kr_events = extract_kr_events(time_s, rpm, kr, spark)
+
+    # Wideband trust gating
+    wideband_trusted = selections["AFR_Act_External"].trust == "confirmed"
+    pe_conflict = False
+    wideband_conflict = False
+    analysis_limits = []
+    if operating_mode == "uncertain":
+        analysis_limits.append("operating_mode_uncertain")
+    if pe is not None and cl is not None:
+        # If both look simultaneously active a lot, treat status interpretation as uncertain
+        both_true = (pe_bool == True) & (cl_bool == True)
+        if both_true.mean() > 0.25:
+            pe_conflict = True
+            analysis_limits.append("pe_closed_loop_conflict")
+    if not wideband_trusted and selections["AFR_Act_External"].selected_column:
+        wideband_conflict = True
+        analysis_limits.append("external_wideband_untrusted")
+    if operating_mode == "uncertain" or pe_conflict or wideband_conflict:
+        if selections["AFR_Act_External"].selected_column and selections["AFR_Act_External"].trust != "invalid":
+            selections["AFR_Act_External"].trust = "uncertain"
+
+    # Hard-stop set should not trip from invalid flat-zero junk sender channels
+    hard_stops = []
+    if rpm is None or len(rpm.dropna()) == 0:
+        hard_stops.append("missing_rpm")
+    if selections["Time_sec"].selected_column is None:
+        hard_stops.append("missing_time")
+
+    trust_buckets = build_trust_buckets(selections)
+
+    matched_raw_columns = {
+        canon: sel.selected_column
+        for canon, sel in selections.items()
+        if sel.selected_column is not None
+    }
+
+    raw_candidates = {
+        canon: sel.candidates
+        for canon, sel in selections.items()
+        if sel.candidates
+    }
+
+    duration_sec = None
+    if time_s is not None and len(time_s.dropna()) >= 2:
+        duration_sec = float(time_s.dropna().iloc[-1] - time_s.dropna().iloc[0])
+
+    response = {
+        "status": "ready" if not hard_stops else "blocked",
+        "filename": filename,
+        "row_count": int(len(dff)),
+        "column_count": int(len(dff.columns)),
+        "header_row_index": int(header_row),
+        "first_data_row_index": int(first_data_row),
+        "log_duration_sec": duration_sec,
+        "matched_raw_columns": matched_raw_columns,
+        "raw_candidate_columns": raw_candidates,
+        "operating_mode": operating_mode,
+        "operating_mode_evidence": op_evidence,
+        "analysis_limits": analysis_limits,
+        "hard_stops": hard_stops,
+        "channel_selection_detail": {
+            canon: {
+                "selected_column": sel.selected_column,
+                "candidates": sel.candidates,
+                "reason": sel.reason,
+                "trust": sel.trust,
+            }
+            for canon, sel in selections.items()
+        },
+        **trust_buckets,
+        "summary": {
+            "rpm_mean": float(rpm.mean(skipna=True)) if rpm is not None and len(rpm.dropna()) else None,
+            "ect_mean": float(try_float_series(ect).mean(skipna=True)) if ect is not None and len(try_float_series(ect).dropna()) else None,
+            "iat_mean": float(try_float_series(iat).mean(skipna=True)) if iat is not None and len(try_float_series(iat).dropna()) else None,
+            "maf_mean_gps": float(try_float_series(maf).mean(skipna=True)) if maf is not None and len(try_float_series(maf).dropna()) else None,
+            "injpw_avg_mean_ms": float(injpw_avg.mean(skipna=True)) if injpw_avg is not None and len(injpw_avg.dropna()) else None,
+            "fuel_rail_pressure_mean": float(try_float_series(fuel_rail).mean(skipna=True)) if fuel_rail is not None and len(try_float_series(fuel_rail).dropna()) else None,
+            "fuel_rail_pressure_rel_mean": float(try_float_series(fuel_rail_rel).mean(skipna=True)) if fuel_rail_rel is not None and len(try_float_series(fuel_rail_rel).dropna()) else None,
+            "ethanol_pct_mean": float(try_float_series(ethanol).mean(skipna=True)) if ethanol is not None and len(try_float_series(ethanol).dropna()) else None,
+            "battery_v_mean": float(try_float_series(batt).mean(skipna=True)) if batt is not None and len(try_float_series(batt).dropna()) else None,
+            "external_wideband_present": selections["AFR_Act_External"].selected_column is not None,
+            "external_wideband_trusted": wideband_trusted,
+            "throttle_desired_present": selections["ThrottleDesired_pct"].selected_column is not None,
+            "throttle_actual_present": selections["ThrottleActual_pct"].selected_column is not None,
+            "throttle_commanded_present": selections["ThrottleCommanded_pct"].selected_column is not None,
+            "throttle_mismatch_pct_mean": throttle_mismatch_pct_mean,
+            "throttle_mismatch_pct_max": throttle_mismatch_pct_max,
+            "oil_pressure_flat_zero_invalid_ignored": oil_invalid_flat_zero,
+            "fuel_pressure_flat_zero_invalid_ignored": fuel_invalid_flat_zero,
+            **trim_summary,
+        },
+        "idle_detection": {
+            "segments": idle_segments,
+            "count": len(idle_segments),
+        },
+        "kr_events": {
+            "events": kr_events,
+            "count": len(kr_events),
+        },
+        "rules_applied": {
+            "used_confirmed_data_only_for_numeric_recommendations": True,
+            "limited_edits_when_map_wideband_pe_conflict": True,
+            "no_wot_fueling_corrections_without_trustworthy_actual_wideband": True,
+            "narrowbands_not_used_as_actual_afr": True,
+            "flat_zero_junk_sender_oil_fuel_channels_do_not_trigger_hard_stop": True,
+        },
+    }
+
+    return response
+
+
+# =========================
+# Endpoints
+# =========================
 
 @app.get("/")
-def root():
-    return {"status": "ok"}
+def root() -> Dict[str, Any]:
+    return {
+        "status": "ok",
+        "service": "streettunedai-log-analyzer",
+        "endpoints": ["/health", "/validate", "/analyze"],
+    }
 
 
 @app.get("/health")
-def health():
-    return {"status": "healthy"}
-
-
-def parse_uploaded_csv(raw_bytes):
-    import io
-    import csv
-    import pandas as pd
-
-    encodings = ["utf-8-sig", "utf-8", "utf-16", "cp1252"]
-    last_error = None
-
-    header_tokens = [
-        "engine rpm",
-        "knock retard",
-        "throttle position",
-        "intake manifold absolute pressure",
-        "equivalence ratio commanded",
-        "mass airflow",
-        "vehicle speed",
-        "accelerator pedal position",
-        "air-fuel ratio commanded",
-        "ethanol fuel %",
-        "dfco active",
-        "power enrichment",
-        "engine oil pressure",
-        "intake air temp",
-        "engine coolant temp",
-        "timing advance",
-        "fuel pressure",
-        "injector pulse width",
-        "offset",
-        "stft",
-        "ltft",
-        "wideband",
-        "lambda",
-    ]
-
-    def looks_like_number(value):
-        try:
-            float(str(value).strip().replace(",", ""))
-            return True
-        except Exception:
-            return False
-
-    def row_score(row):
-        text_cells = [str(x).strip() for x in row]
-        joined = " | ".join(text_cells).lower()
-        score = 0
-        for token in header_tokens:
-            if token in joined:
-                score += 1
-        return score
-
-    for enc in encodings:
-        try:
-            text = raw_bytes.decode(enc, errors="replace")
-            text = text.replace("\x00", "")
-
-            sample = text[:5000]
-            try:
-                dialect = csv.Sniffer().sniff(sample, delimiters=",;\t|")
-                sep = dialect.delimiter
-            except Exception:
-                sep = ","
-
-            reader = csv.reader(io.StringIO(text), delimiter=sep)
-            rows = [row for row in reader if row and any(str(cell).strip() for cell in row)]
-
-            if not rows:
-                return {
-                    "status": "error",
-                    "message": "CSV file was empty"
-                }
-
-            header_row_index = None
-            best_score = 0
-
-            for i, row in enumerate(rows[:80]):
-                score = row_score(row)
-                if score > best_score:
-                    best_score = score
-                    header_row_index = i
-
-            if header_row_index is None or best_score == 0:
-                return {
-                    "status": "error",
-                    "message": "Could not find HP Tuners header row"
-                }
-
-            channel_ids_row_index = header_row_index - 1 if header_row_index - 1 >= 0 else None
-
-            units_row_index = None
-            for i in range(header_row_index + 1, min(len(rows), header_row_index + 4)):
-                row = rows[i]
-                joined = " | ".join(str(x).strip().lower() for x in row)
-                if any(unit in joined for unit in ["rpm", "kpa", "psi", "deg", "°", "mph", "ms", "hz", "v", "lb/min", "g/s", "%", "f", "lambda", "afr"]):
-                    units_row_index = i
-                    break
-
-            header_row = [str(x).strip() for x in rows[header_row_index]]
-            col_count = len(header_row)
-
-            seen = {}
-            clean_headers = []
-            for idx, col in enumerate(header_row):
-                name = col if col else f"unnamed_{idx}"
-                if name in seen:
-                    seen[name] += 1
-                    name = f"{name}_{seen[name]}"
-                else:
-                    seen[name] = 0
-                clean_headers.append(name)
-
-            first_data_row_index = None
-            for i in range(header_row_index + 1, min(len(rows), header_row_index + 15)):
-                row = rows[i]
-                padded = row + [""] * (col_count - len(row))
-                padded = padded[:col_count]
-
-                numeric_count = sum(1 for cell in padded if looks_like_number(cell))
-                if numeric_count >= max(3, min(8, col_count // 4)):
-                    first_data_row_index = i
-                    break
-
-            if first_data_row_index is None:
-                return {
-                    "status": "error",
-                    "message": "Could not find first data row"
-                }
-
-            data_rows = []
-            for row in rows[first_data_row_index:]:
-                padded = [str(x).strip() for x in row] + [""] * (col_count - len(row))
-                padded = padded[:col_count]
-                data_rows.append(padded)
-
-            df = pd.DataFrame(data_rows, columns=clean_headers)
-
-            for col in df.columns:
-                df[col] = df[col].replace("", pd.NA)
-
-            df = df.dropna(axis=1, how="all")
-
-            return {
-                "status": "ready",
-                "dataframe": df,
-                "delimiter": sep,
-                "channel_ids_row_index": channel_ids_row_index,
-                "header_row_index": header_row_index,
-                "units_row_index": units_row_index,
-                "first_data_row_index": first_data_row_index,
-            }
-
-        except Exception as e:
-            last_error = str(e)
-
-    return {
-        "status": "error",
-        "message": f"Could not parse CSV: {last_error}"
-    }
-
-
-def canonical_alias_map():
-    return {
-        "Time_sec": [
-            "Offset",
-            "Time",
-            "Time (s)",
-            "Elapsed Time",
-        ],
-        "RPM": [
-            "Engine RPM",
-            "RPM",
-            "Engine Speed",
-        ],
-        "MAP_kPa": [
-            "Intake Manifold Absolute Pressure (SAE)",
-            "Manifold Absolute Pressure",
-            "MAP",
-            "MAP Sensor",
-            "MAP Pressure",
-        ],
-        "Spark_deg": [
-            "Timing Advance (SAE)",
-            "Timing Advance",
-            "Spark Advance",
-            "Spark",
-            "Ignition Timing",
-        ],
-        "KR_deg": [
-            "Knock Retard",
-            "KR",
-            "Spark Retard",
-        ],
-        "TotalKR_deg": [
-            "Total Knock Retard",
-            "Total KR",
-        ],
-        "EQ_Cmd": [
-            "Equivalence Ratio Commanded (SAE)",
-            "Commanded EQ Ratio",
-            "Commanded EQ",
-            "EQ Ratio Commanded",
-            "Lambda Commanded",
-        ],
-        "AFR_Cmd": [
-            "Air-Fuel Ratio Commanded",
-            "Commanded AFR",
-            "AFR Commanded",
-        ],
-        "FuelSys1_Status": [
-            "Fuel System #1 Status (SAE)",
-            "Fuel System 1 Status",
-        ],
-        "STFT_B1": [
-            "STFT Bank 1",
-            "STFT B1",
-            "Short Term FT B1",
-            "Short Term Fuel Trim Bank 1",
-            "Short Term Fuel Trim B1",
-            "FT Short B1",
-            "Short FT B1",
-        ],
-        "STFT_B2": [
-            "STFT Bank 2",
-            "STFT B2",
-            "Short Term FT B2",
-            "Short Term Fuel Trim Bank 2",
-            "Short Term Fuel Trim B2",
-            "FT Short B2",
-            "Short FT B2",
-        ],
-        "LTFT_B1": [
-            "LTFT Bank 1",
-            "LTFT B1",
-            "Long Term FT B1",
-            "Long Term Fuel Trim Bank 1",
-            "Long Term Fuel Trim B1",
-            "FT Long B1",
-            "Long FT B1",
-        ],
-        "LTFT_B2": [
-            "LTFT Bank 2",
-            "LTFT B2",
-            "Long Term FT B2",
-            "Long Term Fuel Trim Bank 2",
-            "Long Term Fuel Trim B2",
-            "FT Long B2",
-            "Long FT B2",
-        ],
-        "TPS_pct": [
-            "Throttle Position",
-            "Throttle Position (%)",
-            "Throttle Position (SAE)",
-            "TPS",
-            "Throttle %",
-        ],
-        "APP_pct": [
-            "Accelerator Pedal Position",
-            "APP",
-            "APP %",
-            "Accelerator Pedal",
-            "Pedal Position",
-            "Accelerator Position",
-        ],
-        "InjPW_ms": [
-            "Injector Pulse Width",
-            "Injector PW",
-            "Avg. Injector Pulse Width",
-            "Average Injector Pulse Width",
-            "Injector Pulse Width Bank 1",
-            "Injector Pulse Width B1",
-            "Base Pulse Width",
-            "Pulse Width",
-            "Inj PW",
-        ],
-        "MAF_gps": [
-            "Mass Airflow",
-            "MAF",
-            "MAF Airflow Rate (SAE)",
-            "Mass Air Flow",
-            "MAF Frequency Airflow",
-            "Airflow From MAF",
-        ],
-        "DynAir_gps": [
-            "Dynamic Airflow",
-            "Dyn Air",
-            "Dynamic Cylinder Air",
-            "Cylinder Airmass",
-        ],
-        "IAT": [
-            "Intake Air Temp",
-            "IAT",
-            "Intake Air Temperature",
-            "IAT Sensor",
-        ],
-        "ECT": [
-            "Engine Coolant Temp",
-            "ECT",
-            "Coolant Temp",
-            "Engine Coolant Temperature",
-        ],
-        "VehicleSpeed": [
-            "Vehicle Speed",
-            "Speed",
-            "Vehicle Speed (SAE)",
-            "MPH",
-        ],
-        "PE_Status": [
-            "Power Enrichment",
-            "PE",
-            "PE Enable",
-        ],
-        "FuelPressure": [
-            "Fuel Pressure (SAE)",
-            "Fuel Pressure",
-            "Rail Pressure",
-            "Fuel Rail Pressure",
-        ],
-        "OilPressure": [
-            "Engine Oil Pressure",
-            "Oil Pressure",
-        ],
-        "Ethanol_pct": [
-            "Ethanol Fuel %",
-            "Ethanol %",
-            "Alcohol %",
-            "Flex Fuel %",
-            "Flex Sensor Alcohol %",
-        ],
-        "DFCO_Status": [
-            "DFCO Active",
-            "DFCO",
-        ],
-        "O2_B1S1": [
-            "O2 Voltage B1S1",
-            "O2 B1S1",
-            "Bank 1 Sensor 1 O2 Voltage",
-        ],
-        "O2_B2S1": [
-            "O2 Voltage B2S1",
-            "O2 B2S1",
-            "Bank 2 Sensor 1 O2 Voltage",
-        ],
-        "AFR_Act": [
-            "AFR Wideband",
-            "Wideband AFR",
-            "Air Fuel Ratio Wideband",
-            "AFR Actual",
-            "Measured AFR",
-            "Actual AFR",
-        ],
-        "Lambda_Act": [
-            "Lambda Wideband",
-            "Wideband Lambda",
-            "Lambda Actual",
-            "EQ Ratio Actual",
-            "Equivalence Ratio Actual",
-            "Measured Lambda",
-            "Actual Lambda",
-        ],
-    }
-
-
-def normalize_columns(df):
-    import pandas as pd
-
-    alias_map = canonical_alias_map()
-    normalized = {}
-    matched_raw_columns = {}
-    confirmed_channels = []
-    missing_channels = []
-
-    def find_match(candidates):
-        for candidate in candidates:
-            if candidate in df.columns:
-                return candidate
-        lowered = {str(col).strip().lower(): col for col in df.columns}
-        for candidate in candidates:
-            key = str(candidate).strip().lower()
-            if key in lowered:
-                return lowered[key]
-        return None
-
-    for canonical_name, candidates in alias_map.items():
-        raw_col = find_match(candidates)
-        if raw_col is None:
-            missing_channels.append(canonical_name)
-            continue
-
-        s = pd.to_numeric(df[raw_col], errors="coerce")
-        normalized[canonical_name] = s
-        matched_raw_columns[canonical_name] = raw_col
-        confirmed_channels.append(canonical_name)
-
-    ndf = pd.DataFrame(normalized)
-
-    invalid_channels = {}
-    uncertain_channels = {}
-
-    if "FuelPressure" in ndf.columns:
-        s = pd.to_numeric(ndf["FuelPressure"], errors="coerce").dropna()
-        if not s.empty and float(s.abs().max()) == 0.0:
-            invalid_channels["FuelPressure"] = {
-                "status": "invalid",
-                "reason": "Fuel Pressure channel stayed at 0.0 for the whole file"
-            }
-
-    if "OilPressure" in ndf.columns:
-        s = pd.to_numeric(ndf["OilPressure"], errors="coerce").dropna()
-        if not s.empty and float(s.abs().max()) == 0.0:
-            invalid_channels["OilPressure"] = {
-                "status": "invalid",
-                "reason": "Oil Pressure channel stayed at 0.0 for the whole file"
-            }
-
-    if "AFR_Act" not in ndf.columns and "Lambda_Act" not in ndf.columns:
-        uncertain_channels["ActualFueling"] = {
-            "status": "missing",
-            "reason": "No confirmed actual wideband AFR/lambda channel"
-        }
-
-    if "O2_B1S1" in ndf.columns or "O2_B2S1" in ndf.columns:
-        uncertain_channels["NarrowbandO2"] = {
-            "status": "informational_only",
-            "reason": "Narrowband O2 voltage is present but is not valid actual AFR/lambda for WOT fueling decisions"
-        }
-
-    return {
-        "normalized_df": ndf,
-        "matched_raw_columns": matched_raw_columns,
-        "confirmed_channels": confirmed_channels,
-        "missing_channels": missing_channels,
-        "invalid_channels": invalid_channels,
-        "uncertain_channels": uncertain_channels,
-        "raw_columns": list(df.columns),
-    }
-
-
-def series_min_max(series):
-    s = series.dropna()
-    if s.empty:
-        return None
-    return {
-        "min": float(s.min()),
-        "max": float(s.max())
-    }
-
-
-def series_mean(series):
-    s = series.dropna()
-    if s.empty:
-        return None
-    return float(s.mean())
-
-
-def series_max(series):
-    s = series.dropna()
-    if s.empty:
-        return None
-    return float(s.max())
-
-
-def series_min(series):
-    s = series.dropna()
-    if s.empty:
-        return None
-    return float(s.min())
-
-
-def normalize_map_series_to_kpa(series):
-    s = series.dropna()
-    if s.empty:
-        return series, {
-            "status": "empty",
-            "note": "MAP channel found but no numeric data"
-        }
-
-    raw_min = float(s.min())
-    raw_max = float(s.max())
-
-    if raw_max <= 20:
-        converted = series * 6.894757293168361
-        converted_clean = converted.dropna()
-        return converted, {
-            "status": "converted_from_psi",
-            "raw_min": raw_min,
-            "raw_max": raw_max,
-            "converted_min": float(converted_clean.min()) if not converted_clean.empty else None,
-            "converted_max": float(converted_clean.max()) if not converted_clean.empty else None,
-        }
-
-    return series, {
-        "status": "already_kpa",
-        "raw_min": raw_min,
-        "raw_max": raw_max,
-    }
-
-
-def detect_idle_segments(ndf):
-    import pandas as pd
-
-    if "RPM" not in ndf.columns:
-        return {
-            "idle_metrics": {},
-            "idle_row_count": 0
-        }
-
-    mask = pd.Series(True, index=ndf.index)
-
-    if "VehicleSpeed" in ndf.columns:
-        mask = mask & (ndf["VehicleSpeed"].fillna(999) <= 2.0)
-
-    if "APP_pct" in ndf.columns:
-        mask = mask & (ndf["APP_pct"].fillna(999) <= 5.0)
-
-    if "TPS_pct" in ndf.columns:
-        mask = mask & (ndf["TPS_pct"].fillna(999) <= 20.0)
-
-    if "MAP_kPa" in ndf.columns:
-        map_series = ndf["MAP_kPa"].fillna(999)
-        mask = mask & (map_series >= 15.0) & (map_series <= 55.0)
-
-    idle_df = ndf[mask].copy()
-
-    if idle_df.empty or len(idle_df) < 5:
-        return {
-            "idle_metrics": {},
-            "idle_row_count": int(len(idle_df))
-        }
-
-    idle_metrics = {}
-    rpm_stats = series_min_max(idle_df["RPM"])
-    rpm_mean = series_mean(idle_df["RPM"])
-    if rpm_stats:
-        idle_metrics["rpm_min"] = rpm_stats["min"]
-        idle_metrics["rpm_max"] = rpm_stats["max"]
-    if rpm_mean is not None:
-        idle_metrics["rpm_mean"] = rpm_mean
-
-    if "TPS_pct" in idle_df.columns:
-        tps_mean = series_mean(idle_df["TPS_pct"])
-        if tps_mean is not None:
-            idle_metrics["tps_mean"] = tps_mean
-
-    if "APP_pct" in idle_df.columns:
-        app_mean = series_mean(idle_df["APP_pct"])
-        if app_mean is not None:
-            idle_metrics["app_mean"] = app_mean
-
-    if "MAP_kPa" in idle_df.columns:
-        map_mean = series_mean(idle_df["MAP_kPa"])
-        if map_mean is not None:
-            idle_metrics["map_mean_kpa"] = map_mean
-
-    if "VehicleSpeed" in idle_df.columns:
-        speed_mean = series_mean(idle_df["VehicleSpeed"])
-        if speed_mean is not None:
-            idle_metrics["vehicle_speed_mean"] = speed_mean
-
-    return {
-        "idle_metrics": idle_metrics,
-        "idle_row_count": int(len(idle_df))
-    }
-
-
-def extract_kr_events(ndf):
-    import pandas as pd
-
-    if "KR_deg" not in ndf.columns:
-        return []
-
-    work = pd.DataFrame(index=ndf.index)
-    work["KR_deg"] = pd.to_numeric(ndf["KR_deg"], errors="coerce")
-    work["RPM"] = pd.to_numeric(ndf["RPM"], errors="coerce") if "RPM" in ndf.columns else pd.NA
-    work["Time_sec"] = pd.to_numeric(ndf["Time_sec"], errors="coerce") if "Time_sec" in ndf.columns else pd.NA
-
-    work = work.dropna(subset=["KR_deg"])
-    if work.empty:
-        return []
-
-    threshold = 0.5
-    active = work["KR_deg"] > threshold
-    if not active.any():
-        return []
-
-    group_id = (active != active.shift(fill_value=False)).cumsum()
-    events = []
-
-    for gid, grp in work.groupby(group_id):
-        grp_active = active.loc[grp.index].iloc[0]
-        if not grp_active:
-            continue
-
-        peak_kr = float(grp["KR_deg"].max())
-        start_time = None
-        end_time = None
-        rpm_min = None
-        rpm_max = None
-
-        if "Time_sec" in grp.columns:
-            t = grp["Time_sec"].dropna()
-            if not t.empty:
-                start_time = float(t.min())
-                end_time = float(t.max())
-
-        if "RPM" in grp.columns:
-            r = grp["RPM"].dropna()
-            if not r.empty:
-                rpm_min = float(r.min())
-                rpm_max = float(r.max())
-
-        events.append({
-            "start_time_sec": start_time,
-            "end_time_sec": end_time,
-            "duration_sec": (end_time - start_time) if start_time is not None and end_time is not None else None,
-            "rpm_min": rpm_min,
-            "rpm_max": rpm_max,
-            "peak_kr_deg": peak_kr,
-            "row_count": int(len(grp))
-        })
-
-    events = sorted(events, key=lambda x: x["peak_kr_deg"], reverse=True)
-    return events[:10]
+def health() -> Dict[str, Any]:
+    return {"status": "ok"}
 
 
 @app.post("/validate")
-async def validate(file: UploadFile = File(...)):
+async def validate(file: UploadFile = File(...)) -> JSONResponse:
     raw = await file.read()
-    size_bytes = len(raw)
+    if not raw:
+        raise HTTPException(status_code=400, detail="Empty upload")
 
-    parse = parse_uploaded_csv(raw)
-    if parse.get("status") != "ready":
-        return parse
+    try:
+        df, header_row, first_data_row = load_csv_with_detected_header(raw)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"CSV parse failed: {e}")
 
-    df = parse["dataframe"].copy()
-    norm = normalize_columns(df)
+    context, selections = select_analysis_channels(df)
 
-    platform = "unknown"
-    if "RPM" in norm["confirmed_channels"] and ("EQ_Cmd" in norm["confirmed_channels"] or "AFR_Cmd" in norm["confirmed_channels"]):
-        platform = "ls_gas"
+    time_col = selections["Time_sec"].selected_column
+    time_s = selections["Time_sec"].data
+    duration = None
+    if time_s is not None and len(try_float_series(time_s).dropna()) >= 2:
+        ts = try_float_series(time_s).dropna()
+        duration = float(ts.iloc[-1] - ts.iloc[0])
 
-    return {
-        "status": "ready",
-        "platform": platform,
-        "filename": file.filename,
-        "size_bytes": size_bytes,
-        "delimiter": parse.get("delimiter"),
-        "channel_ids_row_index": parse.get("channel_ids_row_index"),
-        "header_row_index": parse.get("header_row_index"),
-        "units_row_index": parse.get("units_row_index"),
-        "first_data_row_index": parse.get("first_data_row_index"),
-        "row_count": int(len(df)),
-        "column_count": int(len(df.columns)),
-        "columns": list(df.columns),
-        "matched_raw_columns": norm["matched_raw_columns"],
-        "confirmed_channels": norm["confirmed_channels"],
-        "missing_channels": norm["missing_channels"],
-        "invalid_channels": norm["invalid_channels"],
-        "uncertain_channels": norm["uncertain_channels"],
+    matched_raw_columns = {
+        canon: sel.selected_column
+        for canon, sel in selections.items()
+        if sel.selected_column is not None
     }
+
+    payload = {
+        "status": "ready",
+        "filename": file.filename,
+        "content_type": file.content_type,
+        "size_bytes": len(raw),
+        "row_count": int(len(context["df"])),
+        "column_count": int(len(context["df"].columns)),
+        "header_row_index": int(header_row),
+        "first_data_row_index": int(first_data_row),
+        "log_duration_sec": duration,
+        "matched_raw_columns": matched_raw_columns,
+        **build_trust_buckets(selections),
+    }
+    return JSONResponse(payload)
 
 
 @app.post("/analyze")
-async def analyze(file: UploadFile = File(...)):
+async def analyze(file: UploadFile = File(...)) -> JSONResponse:
     raw = await file.read()
-    size_bytes = len(raw)
+    if not raw:
+        raise HTTPException(status_code=400, detail="Empty upload")
 
-    parse = parse_uploaded_csv(raw)
-    if parse.get("status") != "ready":
-        return parse
+    try:
+        df, header_row, first_data_row = load_csv_with_detected_header(raw)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"CSV parse failed: {e}")
 
-    df = parse["dataframe"].copy()
-    norm = normalize_columns(df)
-    ndf = norm["normalized_df"].copy()
-
-    summary = {}
-
-    map_info = {
-        "status": "missing",
-        "note": "No MAP column found"
-    }
-
-    if "MAP_kPa" in ndf.columns:
-        normalized_map, map_diag = normalize_map_series_to_kpa(ndf["MAP_kPa"])
-        ndf["MAP_kPa"] = normalized_map
-        map_info = {
-            "source_column": norm["matched_raw_columns"].get("MAP_kPa"),
-            **map_diag
-        }
-
-    summary_fields = [
-        ("RPM", "engine_rpm"),
-        ("MAP_kPa", "map_kpa"),
-        ("Spark_deg", "timing_advance"),
-        ("KR_deg", "knock_retard"),
-        ("TotalKR_deg", "total_knock_retard"),
-        ("APP_pct", "accelerator_pedal_position"),
-        ("TPS_pct", "throttle_position"),
-        ("VehicleSpeed", "vehicle_speed"),
-        ("IAT", "iat"),
-        ("ECT", "coolant_temp"),
-        ("Ethanol_pct", "ethanol_percent"),
-        ("AFR_Cmd", "afr_commanded"),
-        ("EQ_Cmd", "eq_ratio_commanded"),
-        ("InjPW_ms", "injector_pulse_width"),
-        ("MAF_gps", "maf_gps"),
-        ("DynAir_gps", "dynamic_airflow"),
-        ("FuelPressure", "fuel_pressure"),
-        ("OilPressure", "oil_pressure"),
-        ("Time_sec", "time_sec"),
-    ]
-
-    for canonical_name, response_name in summary_fields:
-        if canonical_name in ndf.columns:
-            stats = series_min_max(ndf[canonical_name])
-            if stats:
-                summary[response_name] = stats
-
-    log_duration_sec = None
-    if "Time_sec" in ndf.columns:
-        t = ndf["Time_sec"].dropna()
-        if not t.empty:
-            log_duration_sec = float(t.max() - t.min())
-
-    closed_loop = {}
-    if all(col in ndf.columns for col in ["STFT_B1", "LTFT_B1"]):
-        b1_total = ndf["STFT_B1"] + ndf["LTFT_B1"]
-        mean_b1 = series_mean(b1_total)
-        if mean_b1 is not None:
-            closed_loop["bank1_mean_total_trim"] = mean_b1
-
-    if all(col in ndf.columns for col in ["STFT_B2", "LTFT_B2"]):
-        b2_total = ndf["STFT_B2"] + ndf["LTFT_B2"]
-        mean_b2 = series_mean(b2_total)
-        if mean_b2 is not None:
-            closed_loop["bank2_mean_total_trim"] = mean_b2
-
-    if all(col in ndf.columns for col in ["STFT_B1", "LTFT_B1", "STFT_B2", "LTFT_B2"]):
-        b1_total = ndf["STFT_B1"] + ndf["LTFT_B1"]
-        b2_total = ndf["STFT_B2"] + ndf["LTFT_B2"]
-        diff = (b1_total - b2_total).abs()
-        max_imbalance = series_max(diff)
-        if max_imbalance is not None:
-            closed_loop["max_bank_to_bank_imbalance"] = max_imbalance
-
-    idle_result = detect_idle_segments(ndf)
-    idle = idle_result["idle_metrics"]
-    idle["idle_row_count"] = idle_result["idle_row_count"]
-
-    injector_estimate = {}
-    if "InjPW_ms" in ndf.columns and "RPM" in ndf.columns:
-        pw_max = series_max(ndf["InjPW_ms"])
-        injector_estimate["injpw_max_ms"] = pw_max
-        duty_est = (ndf["InjPW_ms"] * ndf["RPM"]) / 1200.0
-        duty_max = series_max(duty_est)
-        if duty_max is not None:
-            injector_estimate["estimated_duty_cycle_percent"] = duty_max
-
-    kr_events = extract_kr_events(ndf)
-
-    hard_stops = []
-
-    kr_max = series_max(ndf["KR_deg"]) if "KR_deg" in ndf.columns else None
-    if kr_max is not None and kr_max > 3.0:
-        hard_stops.append({
-            "type": "knock_retard",
-            "status": "tripped",
-            "value": kr_max,
-            "threshold": 3.0,
-            "message": "KR exceeded safe threshold. Stop calibration changes and diagnose cause."
-        })
-
-    ect_max = series_max(ndf["ECT"]) if "ECT" in ndf.columns else None
-    if ect_max is not None and ect_max > 240.0:
-        hard_stops.append({
-            "type": "coolant_temp",
-            "status": "tripped",
-            "value": ect_max,
-            "threshold": 240.0,
-            "message": "ECT exceeded safe threshold. Stop calibration changes and fix thermal issue."
-        })
-
-    oil_min = series_min(ndf["OilPressure"]) if "OilPressure" in ndf.columns else None
-    oil_invalid = "OilPressure" in norm["invalid_channels"]
-    if oil_min is not None and not oil_invalid and oil_min < 10.0:
-        hard_stops.append({
-            "type": "oil_pressure",
-            "status": "tripped",
-            "value": oil_min,
-            "threshold": 10.0,
-            "message": "Oil pressure dropped into unsafe range. Stop calibration changes and inspect engine/mechanical health."
-        })
-
-    operating_mode = {
-        "map_based_classification": None,
-        "note": None
-    }
-
-    map_max = summary.get("map_kpa", {}).get("max")
-    if map_max is not None:
-        if map_max <= 100:
-            operating_mode["map_based_classification"] = "na"
-            operating_mode["note"] = "MAP stayed at or below 100 kPa."
-        elif map_max <= 105:
-            operating_mode["map_based_classification"] = "verify"
-            operating_mode["note"] = "MAP was between 100 and 105 kPa. Verify sensor scaling and actual boost state."
-        else:
-            operating_mode["map_based_classification"] = "boost"
-            operating_mode["note"] = "MAP exceeded 105 kPa."
-
-    recommendations = []
-
-    has_actual_wideband = "AFR_Act" in ndf.columns or "Lambda_Act" in ndf.columns
-    fuel_pressure_invalid = "FuelPressure" in norm["invalid_channels"]
-
-    if hard_stops:
-        recommendations.append("Hard stop triggered. Do not make calibration changes until the cause is diagnosed.")
-    else:
-        if map_max is not None and map_max <= 100:
-            recommendations.append("Log appears naturally aspirated based on MAP. Use NA workflow, not boost workflow.")
-        if kr_max is not None and kr_max > 0.5:
-            recommendations.append("KR is present. Remove timing in the affected area and verify fueling, IAT, and mechanical noise.")
-
-    if not has_actual_wideband:
-        recommendations.append("No confirmed actual wideband AFR/lambda channel. Do not make WOT fueling corrections from this log alone.")
-
-    if fuel_pressure_invalid:
-        recommendations.append("Fuel pressure channel is invalid in this file. Do not use it for load or WOT fuel system decisions.")
-
-    if oil_invalid:
-        recommendations.append("Oil pressure channel is invalid in this file. Report it, but do not use it as a hard-stop trigger.")
-
-    analysis_notes = []
-
-    if closed_loop:
-        analysis_notes.append("Closed-loop trims are available for part-throttle analysis.")
-    if idle_result["idle_row_count"] >= 5:
-        analysis_notes.append("Idle metrics were calculated from low-speed, low-pedal, low-throttle rows only.")
-    if kr_events:
-        analysis_notes.append("KR event windows were extracted from contiguous KR segments above 0.5 degrees.")
-    if not has_actual_wideband:
-        analysis_notes.append("Narrowband O2 voltage does not count as actual AFR/lambda.")
-    if "PE_Status" in ndf.columns:
-        analysis_notes.append("PE status channel is present.")
-    if "FuelPressure" in norm["invalid_channels"]:
-        analysis_notes.append("Fuel Pressure (SAE) stayed at 0.0 and was marked invalid.")
-    if "OilPressure" in norm["invalid_channels"]:
-        analysis_notes.append("Oil Pressure stayed at 0.0 and was marked invalid.")
-
-    return {
-        "status": "ready",
-        "filename": file.filename,
-        "size_bytes": size_bytes,
-        "row_count": int(len(df)),
-        "column_count": int(len(df.columns)),
-        "header_row_index": parse.get("header_row_index"),
-        "first_data_row_index": parse.get("first_data_row_index"),
-        "log_duration_sec": log_duration_sec,
-        "matched_raw_columns": norm["matched_raw_columns"],
-        "confirmed_channels": norm["confirmed_channels"],
-        "missing_channels": norm["missing_channels"],
-        "invalid_channels": norm["invalid_channels"],
-        "uncertain_channels": norm["uncertain_channels"],
-        "summary": summary,
-        "closed_loop": closed_loop,
-        "idle": idle,
-        "injector_estimate": injector_estimate,
-        "kr_events": kr_events,
-        "unit_sanity": {
-            "map": map_info
-        },
-        "hard_stops": hard_stops,
-        "operating_mode": operating_mode,
-        "analysis_notes": analysis_notes,
-        "recommendations": recommendations
-    }
+    result = analyze_df(df, file.filename or "upload.csv", header_row, first_data_row)
+    return JSONResponse(result)
