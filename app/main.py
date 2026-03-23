@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import io
-import math
 import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
@@ -11,37 +10,11 @@ import pandas as pd
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
-app = FastAPI(title="StreetTunedAI Log Analyzer", version="1.0.0")
+app = FastAPI(title="StreetTunedAI Log Analyzer", version="1.0.1")
 
-
-# =========================
-# Configuration / constants
-# =========================
 
 NUMERIC_FFILL_SEC = 0.20
 STATUS_FFILL_SEC = 0.50
-
-SAE_EQUIV = {
-    "rpm": ["Engine RPM", "Engine RPM (SAE)"],
-    "ect": ["Engine Coolant Temp", "Engine Coolant Temp (SAE)"],
-    "iat": ["Intake Air Temp", "Intake Air Temp (SAE)"],
-    "maf_gps": ["Mass Airflow", "Mass Airflow (SAE)"],
-    "stft_b1": ["Short Term Fuel Trim Bank 1", "Short Term Fuel Trim Bank 1 (SAE)"],
-    "stft_b2": ["Short Term Fuel Trim Bank 2", "Short Term Fuel Trim Bank 2 (SAE)"],
-    "ltft_b1": ["Long Term Fuel Trim Bank 1", "Long Term Fuel Trim Bank 1 (SAE)"],
-    "ltft_b2": ["Long Term Fuel Trim Bank 2", "Long Term Fuel Trim Bank 2 (SAE)"],
-    "ethanol_pct": ["Ethanol Fuel %", "Ethanol Fuel % (SAE)"],
-    "fuel_rail_pressure": ["Fuel Rail Pressure", "Fuel Rail Pressure (SAE)"],
-    "fuel_rail_pressure_rel": ["Fuel Rail Pressure (Relative)", "Fuel Rail Pressure (Relative) (SAE)"],
-    "map_kpa": ["Intake Manifold Absolute Pressure", "Intake Manifold Absolute Pressure (SAE)"],
-    "baro_kpa": ["Barometric Pressure", "Barometric Pressure (SAE)"],
-    "battery_v": ["Control Module Voltage", "Control Module Voltage (SAE)"],
-    "spark_deg": ["Timing Advance", "Timing Advance (SAE)"],
-    "kr_deg": ["Knock Retard", "Total Knock Retard"],
-    "tps_pct": ["Throttle Position", "Throttle Position (SAE)"],
-    "fuel_sys1": ["Fuel System #1 Status", "Fuel System #1 Status (SAE)"],
-    "eq_cmd": ["Equivalence Ratio Commanded", "Equivalence Ratio Commanded (SAE)"],
-}
 
 RAW_ALIAS_GROUPS: Dict[str, List[str]] = {
     "Time_sec": [
@@ -186,43 +159,9 @@ RAW_ALIAS_GROUPS: Dict[str, List[str]] = {
     ],
 }
 
-REQUIRED_CANONICAL = [
-    "Time_sec",
-    "RPM",
-    "ECT",
-    "IAT",
-    "MAF_gps",
-    "InjectorPW_B1_ms",
-    "InjectorPW_B2_ms",
-    "STFT_B1",
-    "STFT_B2",
-    "LTFT_B1",
-    "LTFT_B2",
-    "ThrottleDesired_pct",
-    "ThrottleCommanded_pct",
-    "ThrottleActual_pct",
-    "MAP_kPa",
-    "BoostRelatedPressure_kPa",
-    "BoostRelatedVacuum_kPa",
-    "AFR_Act_External",
-    "FuelRailPressure",
-    "FuelRailPressureRel",
-    "Ethanol_pct",
-    "PE_Status",
-    "ClosedLoopActive",
-    "Battery_V",
-    "Baro_kPa",
-    "Spark_deg",
-    "KR_deg",
-]
-
 TEXT_TRUE = {"on", "true", "yes", "enabled", "active", "closed loop", "power enrichment", "1"}
 TEXT_FALSE = {"off", "false", "no", "disabled", "inactive", "open loop", "0"}
 
-
-# =========================
-# Helpers
-# =========================
 
 def clean_name(x: Any) -> str:
     s = "" if x is None else str(x)
@@ -315,7 +254,6 @@ def load_csv_with_detected_header(raw: bytes) -> Tuple[pd.DataFrame, int, int]:
         io.StringIO(text),
         header=header_row,
         skip_blank_lines=False,
-        low_memory=False,
         dtype=str,
         engine="python",
         on_bad_lines="skip",
@@ -323,16 +261,12 @@ def load_csv_with_detected_header(raw: bytes) -> Tuple[pd.DataFrame, int, int]:
     df.columns = [clean_name(c) for c in df.columns]
     df = df.dropna(how="all").reset_index(drop=True)
 
-    # Remove repeated header rows that sometimes appear inside logs
     if len(df) > 0:
         header_slugs = [slug(c) for c in df.columns]
         keep_rows = []
         for _, row in df.iterrows():
             vals = [slug(clean_name(v)) for v in row.tolist()]
-            if vals == header_slugs:
-                keep_rows.append(False)
-            else:
-                keep_rows.append(True)
+            keep_rows.append(vals != header_slugs)
         df = df.loc[keep_rows].reset_index(drop=True)
 
     return df, header_row, first_data_row
@@ -341,8 +275,7 @@ def load_csv_with_detected_header(raw: bytes) -> Tuple[pd.DataFrame, int, int]:
 def build_alias_lookup() -> Dict[str, List[str]]:
     lookup: Dict[str, List[str]] = {}
     for canon, names in RAW_ALIAS_GROUPS.items():
-        all_names = list(dict.fromkeys(names))
-        lookup[canon] = all_names
+        lookup[canon] = list(dict.fromkeys(names))
     return lookup
 
 
@@ -379,9 +312,7 @@ def series_plausible_afr(s: pd.Series, rpm: Optional[pd.Series] = None) -> bool:
         return False
     if series_is_flatline_numeric(x):
         return False
-    # Gas AFR scale plausibility
-    plausible = x.between(7.0, 22.0).mean() >= 0.90
-    if not plausible:
+    if x.between(7.0, 22.0).mean() < 0.90:
         return False
     if rpm is not None:
         r = try_float_series(rpm).reindex_like(s)
@@ -411,9 +342,8 @@ def series_plausible_map_kpa(s: pd.Series, rpm: Optional[pd.Series], baro: Optio
                 if xr.between(10, 315).mean() < 0.90:
                     return False, "running_out_of_range"
                 if baro is not None:
-                    b = try_float_series(baro).reindex_like(x).fillna(method="ffill")
+                    b = try_float_series(baro).reindex_like(x).ffill()
                     if len(b.dropna()) > 0:
-                        # Constant implausibly low MAP while clearly running
                         if (xr < 15).mean() > 0.80:
                             return False, "implausibly_low_while_running"
                         if (xr > 220).mean() > 0.90 and (b.dropna().median() < 120):
@@ -438,9 +368,8 @@ def fill_sparse_channels(df: pd.DataFrame, time_col: str) -> pd.DataFrame:
 
         raw = out[col]
         numeric = try_float_series(raw)
-        numeric_valid = numeric.notna().sum()
-        total_valid = raw.notna().sum()
-
+        numeric_valid = int(numeric.notna().sum())
+        total_valid = int(raw.notna().sum())
         is_numeric_like = numeric_valid >= max(3, int(total_valid * 0.50)) if total_valid > 0 else False
 
         if is_numeric_like:
@@ -456,10 +385,7 @@ def fill_sparse_channels(df: pd.DataFrame, time_col: str) -> pd.DataFrame:
                 else:
                     if last_idx is not None and pd.notna(ti) and pd.notna(t.loc[last_idx]):
                         dt = float(ti - t.loc[last_idx])
-                        if 0 <= dt <= NUMERIC_FFILL_SEC:
-                            filled.append(last_val)
-                        else:
-                            filled.append(np.nan)
+                        filled.append(last_val if 0 <= dt <= NUMERIC_FFILL_SEC else np.nan)
                     else:
                         filled.append(np.nan)
             out[col] = pd.Series(filled, index=out.index)
@@ -477,10 +403,7 @@ def fill_sparse_channels(df: pd.DataFrame, time_col: str) -> pd.DataFrame:
                 else:
                     if last_idx is not None and pd.notna(ti) and pd.notna(t.loc[last_idx]):
                         dt = float(ti - t.loc[last_idx])
-                        if 0 <= dt <= STATUS_FFILL_SEC:
-                            filled.append(last_val)
-                        else:
-                            filled.append(np.nan)
+                        filled.append(last_val if 0 <= dt <= STATUS_FFILL_SEC else np.nan)
                     else:
                         filled.append(np.nan)
             out[col] = pd.Series(filled, index=out.index)
@@ -498,8 +421,7 @@ def convert_status_to_bool(series: pd.Series) -> pd.Series:
         if s in TEXT_FALSE:
             return False
         try:
-            f = float(s)
-            return f != 0.0
+            return float(s) != 0.0
         except Exception:
             return np.nan
 
@@ -562,7 +484,7 @@ class ChannelSelection:
     selected_column: Optional[str] = None
     candidates: List[str] = field(default_factory=list)
     reason: str = "missing"
-    trust: str = "missing"  # confirmed / suspect / invalid / uncertain / missing
+    trust: str = "missing"
     data: Optional[pd.Series] = None
 
 
@@ -574,7 +496,6 @@ def build_channel_map(df: pd.DataFrame) -> Dict[str, ChannelSelection]:
         candidates = select_matching_columns(cols, aliases)
         selections[canonical] = ChannelSelection(canonical=canonical, candidates=candidates)
 
-    # Time
     time_candidates = selections["Time_sec"].candidates
     time_col = None
     time_reason = "missing"
@@ -590,7 +511,6 @@ def build_channel_map(df: pd.DataFrame) -> Dict[str, ChannelSelection]:
     selections["Time_sec"].trust = "confirmed" if time_col else "missing"
     selections["Time_sec"].data = try_float_series(df[time_col]) if time_col else None
 
-    # Simple numerics first
     def basic_numeric(canon: str):
         if not selections[canon].candidates:
             selections[canon].reason = "missing"
@@ -624,10 +544,13 @@ def build_channel_map(df: pd.DataFrame) -> Dict[str, ChannelSelection]:
         "BoostRelatedVacuum_kPa",
         "ThrottleDesired_pct",
         "ThrottleCommanded_pct",
+        "OilPressure",
+        "FuelPressure",
+        "EqCmd",
+        "AfrCmd",
     ]:
         basic_numeric(canon)
 
-    # PE / CL status
     for canon in ["PE_Status", "ClosedLoopActive", "FuelSys1_Status"]:
         cands = selections[canon].candidates
         if not cands:
@@ -640,7 +563,6 @@ def build_channel_map(df: pd.DataFrame) -> Dict[str, ChannelSelection]:
         selections[canon].reason = "ok"
         selections[canon].trust = "confirmed"
 
-    # MAP with trust check
     map_cands = selections["MAP_kPa"].candidates
     rpm_series = selections["RPM"].data
     baro_series = selections["Baro_kPa"].data
@@ -653,9 +575,9 @@ def build_channel_map(df: pd.DataFrame) -> Dict[str, ChannelSelection]:
         for col in map_cands:
             s = try_float_series(df[col])
             ok, reason = series_plausible_map_kpa(s, rpm_series, baro_series)
-            score = s.notna().sum()
+            score = float(s.notna().sum())
             if not ok:
-                score -= 1000
+                score -= 1000.0
             if score > best_score:
                 best_score = score
                 best_col = col
@@ -670,7 +592,6 @@ def build_channel_map(df: pd.DataFrame) -> Dict[str, ChannelSelection]:
         selections["MAP_kPa"].reason = "missing"
         selections["MAP_kPa"].trust = "missing"
 
-    # External AFR / AEM trust
     afr_cands = selections["AFR_Act_External"].candidates
     if afr_cands:
         best_score = -1e9
@@ -681,9 +602,9 @@ def build_channel_map(df: pd.DataFrame) -> Dict[str, ChannelSelection]:
         for col in afr_cands:
             s = try_float_series(df[col])
             ok = series_plausible_afr(s, rpm=rpm_series)
-            score = s.notna().sum()
+            score = float(s.notna().sum())
             if not ok:
-                score -= 1000
+                score -= 1000.0
             if score > best_score:
                 best_score = score
                 best_col = col
@@ -698,7 +619,6 @@ def build_channel_map(df: pd.DataFrame) -> Dict[str, ChannelSelection]:
         selections["AFR_Act_External"].reason = "missing"
         selections["AFR_Act_External"].trust = "missing"
 
-    # Throttle actual selection
     actual_cands = selections["ThrottleActual_pct"].candidates
     if actual_cands:
         col, series, reason = choose_best_percent_column(df, actual_cands)
@@ -913,26 +833,17 @@ def compute_trim_summary(stft_b1: Optional[pd.Series], stft_b2: Optional[pd.Seri
 
 def select_analysis_channels(df: pd.DataFrame) -> Tuple[Dict[str, Any], Dict[str, ChannelSelection]]:
     selections = build_channel_map(df)
-
-    # Time-based sparse fill after initial time channel selection
     time_col = selections["Time_sec"].selected_column
     if time_col:
         df_filled = fill_sparse_channels(df, time_col)
         selections = build_channel_map(df_filled)
     else:
         df_filled = df
-
-    return {
-        "df": df_filled,
-    }, selections
+    return {"df": df_filled}, selections
 
 
 def build_trust_buckets(selections: Dict[str, ChannelSelection]) -> Dict[str, List[str]]:
-    confirmed = []
-    suspect = []
-    missing = []
-    invalid = []
-    uncertain = []
+    confirmed, suspect, missing, invalid, uncertain = [], [], [], [], []
 
     for canon, sel in selections.items():
         entry = f"{canon}:{sel.selected_column}" if sel.selected_column else canon
@@ -987,26 +898,23 @@ def analyze_df(df: pd.DataFrame, filename: str, header_row: int, first_data_row:
     fuel_rail = selections["FuelRailPressure"].data
     fuel_rail_rel = selections["FuelRailPressureRel"].data
     ethanol = selections["Ethanol_pct"].data
-    oil_pressure = selections["OilPressure"].data if "OilPressure" in selections else None
-    fuel_pressure = selections["FuelPressure"].data if "FuelPressure" in selections else None
+    oil_pressure = selections["OilPressure"].data
+    fuel_pressure = selections["FuelPressure"].data
 
     if time_s is not None:
         time_s = try_float_series(time_s)
     if rpm is not None:
         rpm = try_float_series(rpm)
 
-    # Preserve existing flat-zero junk sender handling
     oil_invalid_flat_zero = detect_invalid_flat_zero_pressure(oil_pressure, rpm)
     fuel_invalid_flat_zero = detect_invalid_flat_zero_pressure(fuel_pressure, rpm)
 
     if oil_invalid_flat_zero:
-        if "OilPressure" in selections:
-            selections["OilPressure"].trust = "invalid"
-            selections["OilPressure"].reason = "flat_zero_invalid_sender"
+        selections["OilPressure"].trust = "invalid"
+        selections["OilPressure"].reason = "flat_zero_invalid_sender"
     if fuel_invalid_flat_zero:
-        if "FuelPressure" in selections:
-            selections["FuelPressure"].trust = "invalid"
-            selections["FuelPressure"].reason = "flat_zero_invalid_sender"
+        selections["FuelPressure"].trust = "invalid"
+        selections["FuelPressure"].reason = "flat_zero_invalid_sender"
 
     operating_mode, op_evidence, op_uncertain = classify_operating_mode(
         rpm=rpm,
@@ -1016,8 +924,10 @@ def analyze_df(df: pd.DataFrame, filename: str, header_row: int, first_data_row:
         boost_pressure=sc_inlet_p,
         boost_vacuum=sc_inlet_v,
     )
+
     if operating_mode == "uncertain":
-        selections["MAP_kPa"].trust = "uncertain" if selections["MAP_kPa"].trust != "invalid" else selections["MAP_kPa"].trust
+        if selections["MAP_kPa"].trust != "invalid":
+            selections["MAP_kPa"].trust = "uncertain"
         selections["MAP_kPa"].reason = ", ".join(op_uncertain) if op_uncertain else selections["MAP_kPa"].reason
         if selections["BoostRelatedPressure_kPa"].selected_column:
             selections["BoostRelatedPressure_kPa"].trust = "uncertain"
@@ -1027,14 +937,12 @@ def analyze_df(df: pd.DataFrame, filename: str, header_row: int, first_data_row:
     pe_bool = convert_status_to_bool(pe) if pe is not None else pd.Series(dtype=bool)
     cl_bool = convert_status_to_bool(cl) if cl is not None else pd.Series(dtype=bool)
 
-    throttle_mismatch = None
     throttle_mismatch_pct_mean = None
     throttle_mismatch_pct_max = None
     if throttle_des is not None and throttle_act is not None:
         td = try_float_series(throttle_des)
         ta = try_float_series(throttle_act)
         delta = td - ta
-        throttle_mismatch = delta.abs() > 5.0
         if len(delta.dropna()) > 0:
             throttle_mismatch_pct_mean = float(delta.abs().mean(skipna=True))
             throttle_mismatch_pct_max = float(delta.abs().max(skipna=True))
@@ -1045,27 +953,28 @@ def analyze_df(df: pd.DataFrame, filename: str, header_row: int, first_data_row:
     idle_segments = detect_idle_segments(time_s, rpm, throttle_act)
     kr_events = extract_kr_events(time_s, rpm, kr, spark)
 
-    # Wideband trust gating
     wideband_trusted = selections["AFR_Act_External"].trust == "confirmed"
     pe_conflict = False
     wideband_conflict = False
     analysis_limits = []
+
     if operating_mode == "uncertain":
         analysis_limits.append("operating_mode_uncertain")
-    if pe is not None and cl is not None:
-        # If both look simultaneously active a lot, treat status interpretation as uncertain
+
+    if pe is not None and cl is not None and len(pe_bool) and len(cl_bool):
         both_true = (pe_bool == True) & (cl_bool == True)
-        if both_true.mean() > 0.25:
+        if len(both_true) and both_true.mean() > 0.25:
             pe_conflict = True
             analysis_limits.append("pe_closed_loop_conflict")
+
     if not wideband_trusted and selections["AFR_Act_External"].selected_column:
         wideband_conflict = True
         analysis_limits.append("external_wideband_untrusted")
+
     if operating_mode == "uncertain" or pe_conflict or wideband_conflict:
         if selections["AFR_Act_External"].selected_column and selections["AFR_Act_External"].trust != "invalid":
             selections["AFR_Act_External"].trust = "uncertain"
 
-    # Hard-stop set should not trip from invalid flat-zero junk sender channels
     hard_stops = []
     if rpm is None or len(rpm.dropna()) == 0:
         hard_stops.append("missing_rpm")
@@ -1079,7 +988,6 @@ def analyze_df(df: pd.DataFrame, filename: str, header_row: int, first_data_row:
         for canon, sel in selections.items()
         if sel.selected_column is not None
     }
-
     raw_candidates = {
         canon: sel.candidates
         for canon, sel in selections.items()
@@ -1088,9 +996,10 @@ def analyze_df(df: pd.DataFrame, filename: str, header_row: int, first_data_row:
 
     duration_sec = None
     if time_s is not None and len(time_s.dropna()) >= 2:
-        duration_sec = float(time_s.dropna().iloc[-1] - time_s.dropna().iloc[0])
+        ts = time_s.dropna()
+        duration_sec = float(ts.iloc[-1] - ts.iloc[0])
 
-    response = {
+    return {
         "status": "ready" if not hard_stops else "blocked",
         "filename": filename,
         "row_count": int(len(dff)),
@@ -1152,12 +1061,6 @@ def analyze_df(df: pd.DataFrame, filename: str, header_row: int, first_data_row:
         },
     }
 
-    return response
-
-
-# =========================
-# Endpoints
-# =========================
 
 @app.get("/")
 def root() -> Dict[str, Any]:
@@ -1185,9 +1088,8 @@ async def validate(file: UploadFile = File(...)) -> JSONResponse:
         raise HTTPException(status_code=400, detail=f"CSV parse failed: {e}")
 
     context, selections = select_analysis_channels(df)
-
-    time_col = selections["Time_sec"].selected_column
     time_s = selections["Time_sec"].data
+
     duration = None
     if time_s is not None and len(try_float_series(time_s).dropna()) >= 2:
         ts = try_float_series(time_s).dropna()
