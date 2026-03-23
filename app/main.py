@@ -10,6 +10,40 @@ def root():
 def health():
     return {"status": "healthy"}
 
+def parse_uploaded_csv(raw_bytes):
+    import io
+    import pandas as pd
+
+    encodings = ["utf-8-sig", "utf-8", "utf-16", "cp1252"]
+
+    last_error = None
+
+    for enc in encodings:
+        try:
+            text = raw_bytes.decode(enc, errors="replace")
+            text = text.replace("\x00", "")
+
+            df = pd.read_csv(
+                io.StringIO(text),
+                sep=None,
+                engine="python",
+                on_bad_lines="skip"
+            )
+
+            df = df.dropna(axis=1, how="all")
+
+            return {
+                "status": "ready",
+                "dataframe": df
+            }
+        except Exception as e:
+            last_error = str(e)
+
+    return {
+        "status": "error",
+        "message": f"Could not parse CSV: {last_error}"
+    }
+
 @app.post("/analyze")
 async def analyze(file: UploadFile = File(...)):
     import pandas as pd
