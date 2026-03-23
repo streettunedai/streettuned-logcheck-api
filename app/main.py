@@ -1,6 +1,5 @@
 @app.post("/analyze")
 async def analyze(file: UploadFile = File(...)):
-    import io
     import pandas as pd
 
     raw = await file.read()
@@ -49,13 +48,14 @@ async def analyze(file: UploadFile = File(...)):
 
         if raw_max <= 20:
             converted = pd.to_numeric(local_df[map_col], errors="coerce") * 6.894757
+            converted_clean = converted.dropna()
             return converted, {
                 "status": "converted_from_psi",
                 "source_column": map_col,
                 "raw_min": raw_min,
                 "raw_max": raw_max,
-                "converted_min": float(converted.min()),
-                "converted_max": float(converted.max()),
+                "converted_min": float(converted_clean.min()) if not converted_clean.empty else None,
+                "converted_max": float(converted_clean.max()) if not converted_clean.empty else None,
             }
 
         return pd.to_numeric(local_df[map_col], errors="coerce"), {
