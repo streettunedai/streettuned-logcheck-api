@@ -34,6 +34,9 @@ def parse_uploaded_csv(raw_bytes):
         "ethanol fuel %",
         "dfco active",
         "power enrichment",
+        "engine oil pressure",
+        "intake air temp",
+        "engine coolant temp",
     ]
 
     def looks_like_number(value):
@@ -91,7 +94,6 @@ def parse_uploaded_csv(raw_bytes):
             header_row = [str(x).strip() for x in rows[header_row_index]]
             col_count = len(header_row)
 
-            # Deduplicate header names
             seen = {}
             clean_headers = []
             for idx, col in enumerate(header_row):
@@ -103,8 +105,6 @@ def parse_uploaded_csv(raw_bytes):
                     seen[name] = 0
                 clean_headers.append(name)
 
-            # Find first real data row after header.
-            # Skip channel-id row / units row / empty rows.
             first_data_row_index = None
             for i in range(header_row_index + 1, min(len(rows), header_row_index + 12)):
                 row = rows[i]
@@ -130,7 +130,6 @@ def parse_uploaded_csv(raw_bytes):
 
             df = pd.DataFrame(data_rows, columns=clean_headers)
 
-            # Drop junk blank columns
             for col in df.columns:
                 df[col] = df[col].replace("", pd.NA)
 
@@ -173,6 +172,22 @@ async def analyze(file: UploadFile = File(...)):
             "min": float(s.min()),
             "max": float(s.max())
         }
+
+    def max_numeric(col_name):
+        if col_name not in df.columns:
+            return None
+        s = pd.to_numeric(df[col_name], errors="coerce").dropna()
+        if s.empty:
+            return None
+        return float(s.max())
+
+    def min_numeric(col_name):
+        if col_name not in df.columns:
+            return None
+        s = pd.to_numeric(df[col_name], errors="coerce").dropna()
+        if s.empty:
+            return None
+        return float(s.min())
 
     def normalize_map_to_kpa(local_df):
         possible_map_cols = [
@@ -290,6 +305,75 @@ async def analyze(file: UploadFile = File(...)):
         if stats:
             summary["eq_ratio_commanded"] = stats
 
+    hard_stops = []
+
+    kr_max = max_numeric("Knock Retard")
+    if kr_max is not None and kr_max > 3.0:
+        hard_stops.append({
+            "type": "knock_retard",
+            "status": "tripped",
+            "value": kr_max,
+            "threshold": 3.0,
+            "message": "KR exceeded safe threshold. Stop calibration changes and diagnose cause."
+        })
+
+    ect_max = None
+    if "Engine Coolant Temp" in df.columns:
+        ect_max = max_numeric("Engine Coolant Temp")
+    elif "ECT" in df.columns:
+        ect_max = max_numeric("ECT")
+
+    if ect_max is not None and ect_max > 240.0:
+        hard_stops.append({
+            "type": "coolant_temp",
+            "status": "tripped",
+            "value": ect_max,
+            "threshold": 240.0,
+            "message": "ECT exceeded safe threshold. Stop calibration changes and fix thermal issue."
+        })
+
+    oil_min = min_numeric("Engine Oil Pressure")
+    if oil_min is not None and oil_min < 10.0:
+        hard_stops.append({
+            "type": "oil_pressure",
+            "status": "tripped",
+            "value": oil_min,
+            "threshold": 10.0,
+            "message": "Oil pressure dropped into unsafe range. Stop calibration changes and inspect engine/mechanical health."
+        })
+
+    operating_mode = {
+        "map_based_classification": None,
+        "note": None
+    }
+
+    map_max = None
+    if "map_kpa" in summary:
+        map_max = summary["map_kpa"]["max"]
+
+    if map_max is not None:
+        if map_max <= 100:
+            operating_mode["map_based_classification"] = "na"
+            operating_mode["note"] = "MAP stayed at or below 100 kPa."
+        elif map_max <= 105:
+            operating_mode["map_based_classification"] = "verify"
+            operating_mode["note"] = "MAP was between 100 and 105 kPa. Verify sensor scaling and actual boost state."
+        else:
+            operating_mode["map_based_classification"] = "boost"
+            operating_mode["note"] = "MAP exceeded 105 kPa."
+
+    recommendations = []
+
+    if hard_stops:
+        recommendations.append("Hard stop triggered. Do not make calibration changes until the cause is diagnosed.")
+    else:
+        if map_max is not None and map_max <= 100:
+            recommendations.append("Log appears naturally aspirated based on MAP. Use NA workflow, not boost workflow.")
+        if kr_max is not None and kr_max > 0.5:
+            recommendations.append("KR is present. Remove timing in the affected area and verify fueling, IAT, and mechanical noise.")
+        if kr_max is not None and kr_max > 3.0:
+            recommendations.append("KR exceeds 3 degrees. Stop calibration changes and inspect cause before additional pulls.")
+
     return {
         "status": "ready",
         "filename": file.filename,
@@ -301,5 +385,8 @@ async def analyze(file: UploadFile = File(...)):
         "summary": summary,
         "unit_sanity": {
             "map": map_info
-        }
+        },
+        "hard_stops": hard_stops,
+        "operating_mode": operating_mode,
+        "recommendations": recommendations
     }
