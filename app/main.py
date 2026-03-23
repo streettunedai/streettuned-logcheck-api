@@ -335,8 +335,6 @@ def normalize_columns(df):
     confirmed_channels = []
     missing_channels = []
 
-    raw_columns = list(df.columns)
-
     def find_match(candidates):
         for candidate in candidates:
             if candidate in df.columns:
@@ -372,6 +370,14 @@ def normalize_columns(df):
                 "reason": "Fuel Pressure channel stayed at 0.0 for the whole file"
             }
 
+    if "OilPressure" in ndf.columns:
+        s = pd.to_numeric(ndf["OilPressure"], errors="coerce").dropna()
+        if not s.empty and float(s.abs().max()) == 0.0:
+            invalid_channels["OilPressure"] = {
+                "status": "invalid",
+                "reason": "Oil Pressure channel stayed at 0.0 for the whole file"
+            }
+
     if "AFR_Act" not in ndf.columns and "Lambda_Act" not in ndf.columns:
         uncertain_channels["ActualFueling"] = {
             "status": "missing",
@@ -391,7 +397,7 @@ def normalize_columns(df):
         "missing_channels": missing_channels,
         "invalid_channels": invalid_channels,
         "uncertain_channels": uncertain_channels,
-        "raw_columns": raw_columns,
+        "raw_columns": list(df.columns),
     }
 
 
@@ -589,7 +595,6 @@ async def analyze(file: UploadFile = File(...)):
     if "InjPW_ms" in ndf.columns and "RPM" in ndf.columns:
         pw_max = series_max(ndf["InjPW_ms"])
         injector_estimate["injpw_max_ms"] = pw_max
-        rpm_nonzero = ndf["RPM"].replace(0, float("nan"))
         duty_est = (ndf["InjPW_ms"] * ndf["RPM"]) / 1200.0
         duty_max = series_max(duty_est)
         if duty_max is not None:
@@ -618,7 +623,8 @@ async def analyze(file: UploadFile = File(...)):
         })
 
     oil_min = series_min(ndf["OilPressure"]) if "OilPressure" in ndf.columns else None
-    if oil_min is not None and oil_min < 10.0:
+    oil_invalid = "OilPressure" in norm["invalid_channels"]
+    if oil_min is not None and not oil_invalid and oil_min < 10.0:
         hard_stops.append({
             "type": "oil_pressure",
             "status": "tripped",
@@ -663,6 +669,9 @@ async def analyze(file: UploadFile = File(...)):
     if fuel_pressure_invalid:
         recommendations.append("Fuel pressure channel is invalid in this file. Do not use it for load or WOT fuel system decisions.")
 
+    if oil_invalid:
+        recommendations.append("Oil pressure channel is invalid in this file. Report it, but do not use it as a hard-stop trigger.")
+
     analysis_notes = []
 
     if closed_loop:
@@ -673,6 +682,8 @@ async def analyze(file: UploadFile = File(...)):
         analysis_notes.append("PE status channel is present.")
     if "FuelPressure" in norm["invalid_channels"]:
         analysis_notes.append("Fuel Pressure (SAE) stayed at 0.0 and was marked invalid.")
+    if "OilPressure" in norm["invalid_channels"]:
+        analysis_notes.append("Oil Pressure stayed at 0.0 and was marked invalid.")
 
     return {
         "status": "ready",
