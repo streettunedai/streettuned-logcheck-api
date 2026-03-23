@@ -1,249 +1,149 @@
-from fastapi import FastAPI, UploadFile, File
-import csv
-import io
-
-app = FastAPI()
-
-
-@app.get("/")
-def root():
-    return {"message": "StreetTunedAI LogCheck API is running"}
-
-
-@app.get("/health")
-def health():
-    return {"status": "ok"}
-
-
-def next_nonempty_csv_row(lines, start_index):
-    for i in range(start_index, len(lines)):
-        line = lines[i].strip()
-        if line and "," in line and "[" not in line:
-            return i, [c.strip() for c in line.split(",")]
-    return None, []
-
-
-def parse_hp_tuners_csv(text):
-    lines = text.splitlines()
-
-    channel_info_index = None
-    channel_data_index = None
-
-    for i, line in enumerate(lines):
-        if "[Channel Information]" in line:
-            channel_info_index = i
-        if "[Channel Data]" in line:
-            channel_data_index = i
-
-    if channel_info_index is None:
-        return {"ok": False, "message": "Missing [Channel Information] section"}
-
-    ids_index, ids_row = next_nonempty_csv_row(lines, channel_info_index + 1)
-    names_index, names_row = next_nonempty_csv_row(
-        lines,
-        ids_index + 1 if ids_index is not None else channel_info_index + 1
-    )
-    units_index, units_row = next_nonempty_csv_row(
-        lines,
-        names_index + 1 if names_index is not None else channel_info_index + 1
-    )
-
-    if names_index is None or not names_row:
-        return {"ok": False, "message": "Could not find channel names row"}
-
-    if channel_data_index is None:
-        return {"ok": False, "message": "Missing [Channel Data] section"}
-
-    first_data_index, first_data_row = next_nonempty_csv_row(lines, channel_data_index + 1)
-
-    if first_data_index is None:
-        return {"ok": False, "message": "No data rows found"}
-
-    data_text = "\n".join(lines[first_data_index:])
-    reader = csv.reader(io.StringIO(data_text))
-    parsed_rows = list(reader)
-
-    return {
-        "ok": True,
-        "channel_ids_row_index": ids_index,
-        "header_row_index": names_index,
-        "units_row_index": units_index,
-        "first_data_row_index": first_data_index,
-        "columns": names_row,
-        "rows": parsed_rows,
-    }
-
-
-def safe_float(value):
-    if value is None:
-        return None
-    text = str(value).strip()
-    if text == "" or text == "---":
-        return None
-    try:
-        return float(text)
-    except Exception:
-        return None
-
-
-def get_series(rows, columns, target_name):
-    if target_name not in columns:
-        return []
-    idx = columns.index(target_name)
-    values = []
-    for row in rows:
-        if idx < len(row):
-            v = safe_float(row[idx])
-            if v is not None:
-                values.append(v)
-    return values
-
-
-def min_max(values):
-    if not values:
-        return {"min": None, "max": None}
-    return {"min": min(values), "max": max(values)}
-
-
-@app.post("/validate")
-async def validate(file: UploadFile = File(...)):
-    contents = await file.read()
-    size_bytes = len(contents)
-
-    try:
-        text = contents.decode("utf-8-sig", errors="replace")
-    except Exception:
-        return {
-            "status": "error",
-            "platform": "unknown",
-            "filename": file.filename,
-            "content_type": file.content_type,
-            "size_bytes": size_bytes,
-            "readable": False,
-            "header_found": False,
-            "header_row_index": None,
-            "row_count": 0,
-            "column_count": 0,
-            "columns": [],
-            "message": "Could not decode uploaded file"
-        }
-
-    parsed = parse_hp_tuners_csv(text)
-
-    if not parsed["ok"]:
-        return {
-            "status": "ok",
-            "platform": "unknown",
-            "filename": file.filename,
-            "content_type": file.content_type,
-            "size_bytes": size_bytes,
-            "readable": False,
-            "header_found": False,
-            "header_row_index": None,
-            "row_count": 0,
-            "column_count": 0,
-            "columns": [],
-            "message": parsed["message"]
-        }
-
-    columns = parsed["columns"]
-    rows = parsed["rows"]
-    lower_cols = [c.lower() for c in columns]
-
-    platform = "unknown"
-
-    ls_markers = [
-        "rpm", "map", "maf", "spark", "iat", "ect",
-        "stft", "ltft", "injector", "knock", "wideband",
-        "air-fuel ratio", "equivalence ratio", "throttle"
-    ]
-    diesel_markers = [
-        "rail pressure", "desired rail", "main injection",
-        "pilot injection", "vane position", "soi", "mm3",
-        "fuel rail pressure", "boost pressure desired"
-    ]
-
-    ls_hits = sum(1 for marker in ls_markers if any(marker in col for col in lower_cols))
-    diesel_hits = sum(1 for marker in diesel_markers if any(marker in col for col in lower_cols))
-
-    if diesel_hits > ls_hits and diesel_hits >= 2:
-        platform = "diesel"
-    elif ls_hits >= 2:
-        platform = "ls_gas"
-
-    return {
-        "status": "ready",
-        "platform": platform,
-        "filename": file.filename,
-        "content_type": file.content_type,
-        "size_bytes": size_bytes,
-        "readable": True,
-        "header_found": True,
-        "header_row_index": parsed["header_row_index"],
-        "channel_ids_row_index": parsed["channel_ids_row_index"],
-        "units_row_index": parsed["units_row_index"],
-        "first_data_row_index": parsed["first_data_row_index"],
-        "row_count": len(rows),
-        "column_count": len(columns),
-        "columns": columns
-    }
-
-
 @app.post("/analyze")
 async def analyze(file: UploadFile = File(...)):
-    contents = await file.read()
-    size_bytes = len(contents)
+    import io
+    import pandas as pd
 
-    try:
-        text = contents.decode("utf-8-sig", errors="replace")
-    except Exception:
+    raw = await file.read()
+    size_bytes = len(raw)
+
+    parse = parse_uploaded_csv(raw)
+    if parse.get("status") != "ready":
+        return parse
+
+    df = parse["dataframe"].copy()
+
+    def safe_min_max(series):
+        s = pd.to_numeric(series, errors="coerce").dropna()
+        if s.empty:
+            return None
         return {
-            "status": "error",
-            "message": "Could not decode uploaded file"
+            "min": float(s.min()),
+            "max": float(s.max())
         }
 
-    parsed = parse_hp_tuners_csv(text)
+    def normalize_map_to_kpa(local_df):
+        possible_map_cols = [
+            "Intake Manifold Absolute Pressure (SAE)",
+            "Manifold Absolute Pressure",
+            "MAP",
+        ]
 
-    if not parsed["ok"]:
-        return {
-            "status": "error",
-            "message": parsed["message"]
+        map_col = next((c for c in possible_map_cols if c in local_df.columns), None)
+
+        if not map_col:
+            return None, {
+                "status": "missing",
+                "note": "No MAP column found"
+            }
+
+        s = pd.to_numeric(local_df[map_col], errors="coerce").dropna()
+
+        if s.empty:
+            return None, {
+                "status": "empty",
+                "note": "MAP column found but no numeric data"
+            }
+
+        raw_min = float(s.min())
+        raw_max = float(s.max())
+
+        if raw_max <= 20:
+            converted = pd.to_numeric(local_df[map_col], errors="coerce") * 6.894757
+            return converted, {
+                "status": "converted_from_psi",
+                "source_column": map_col,
+                "raw_min": raw_min,
+                "raw_max": raw_max,
+                "converted_min": float(converted.min()),
+                "converted_max": float(converted.max()),
+            }
+
+        return pd.to_numeric(local_df[map_col], errors="coerce"), {
+            "status": "already_kpa",
+            "source_column": map_col,
+            "raw_min": raw_min,
+            "raw_max": raw_max,
         }
 
-    columns = parsed["columns"]
-    rows = parsed["rows"]
+    summary = {}
 
-    rpm = get_series(rows, columns, "Engine RPM")
-    map_kpa = get_series(rows, columns, "Intake Manifold Absolute Pressure (SAE)")
-    knock = get_series(rows, columns, "Knock Retard")
-    total_knock = get_series(rows, columns, "Total Knock Retard")
-    pedal = get_series(rows, columns, "Accelerator Pedal Position")
-    throttle = get_series(rows, columns, "Throttle Position")
-    vehicle_speed = get_series(rows, columns, "Vehicle Speed (SAE)")
-    iat = get_series(rows, columns, "Intake Air Temp (SAE)")
-    coolant = get_series(rows, columns, "Engine Coolant Temp")
-    ethanol = get_series(rows, columns, "Ethanol Fuel % (SAE)")
-    afr_cmd = get_series(rows, columns, "Air-Fuel Ratio Commanded")
-    eq_cmd = get_series(rows, columns, "Equivalence Ratio Commanded (SAE)")
+    if "Engine RPM" in df.columns:
+        stats = safe_min_max(df["Engine RPM"])
+        if stats:
+            summary["engine_rpm"] = stats
+
+    map_series, map_info = normalize_map_to_kpa(df)
+    if map_series is not None:
+        stats = safe_min_max(map_series)
+        if stats:
+            summary["map_kpa"] = stats
+
+    if "Knock Retard" in df.columns:
+        stats = safe_min_max(df["Knock Retard"])
+        if stats:
+            summary["knock_retard"] = stats
+
+    if "Total Knock Retard" in df.columns:
+        stats = safe_min_max(df["Total Knock Retard"])
+        if stats:
+            summary["total_knock_retard"] = stats
+
+    if "Accelerator Pedal Position" in df.columns:
+        stats = safe_min_max(df["Accelerator Pedal Position"])
+        if stats:
+            summary["accelerator_pedal_position"] = stats
+
+    if "Throttle Position" in df.columns:
+        stats = safe_min_max(df["Throttle Position"])
+        if stats:
+            summary["throttle_position"] = stats
+
+    if "Vehicle Speed" in df.columns:
+        stats = safe_min_max(df["Vehicle Speed"])
+        if stats:
+            summary["vehicle_speed"] = stats
+
+    if "Intake Air Temp" in df.columns:
+        stats = safe_min_max(df["Intake Air Temp"])
+        if stats:
+            summary["iat"] = stats
+    elif "IAT" in df.columns:
+        stats = safe_min_max(df["IAT"])
+        if stats:
+            summary["iat"] = stats
+
+    if "Engine Coolant Temp" in df.columns:
+        stats = safe_min_max(df["Engine Coolant Temp"])
+        if stats:
+            summary["coolant_temp"] = stats
+    elif "ECT" in df.columns:
+        stats = safe_min_max(df["ECT"])
+        if stats:
+            summary["coolant_temp"] = stats
+
+    if "Ethanol Fuel %" in df.columns:
+        stats = safe_min_max(df["Ethanol Fuel %"])
+        if stats:
+            summary["ethanol_percent"] = stats
+
+    if "Air-Fuel Ratio Commanded" in df.columns:
+        stats = safe_min_max(df["Air-Fuel Ratio Commanded"])
+        if stats:
+            summary["afr_commanded"] = stats
+
+    if "Equivalence Ratio Commanded (SAE)" in df.columns:
+        stats = safe_min_max(df["Equivalence Ratio Commanded (SAE)"])
+        if stats:
+            summary["eq_ratio_commanded"] = stats
 
     return {
         "status": "ready",
         "filename": file.filename,
         "size_bytes": size_bytes,
-        "row_count": len(rows),
-        "column_count": len(columns),
-        "summary": {
-            "engine_rpm": min_max(rpm),
-            "map_kpa": min_max(map_kpa),
-            "knock_retard": min_max(knock),
-            "total_knock_retard": min_max(total_knock),
-            "accelerator_pedal_position": min_max(pedal),
-            "throttle_position": min_max(throttle),
-            "vehicle_speed": min_max(vehicle_speed),
-            "iat": min_max(iat),
-            "coolant_temp": min_max(coolant),
-            "ethanol_percent": min_max(ethanol),
-            "afr_commanded": min_max(afr_cmd),
-            "eq_ratio_commanded": min_max(eq_cmd),
+        "row_count": int(len(df)),
+        "column_count": int(len(df.columns)),
+        "summary": summary,
+        "unit_sanity": {
+            "map": map_info
         }
     }
