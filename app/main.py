@@ -1,3 +1,7 @@
+from fastapi import FastAPI, File, UploadFile
+
+app = FastAPI()
+
 @app.post("/analyze")
 async def analyze(file: UploadFile = File(...)):
     import pandas as pd
