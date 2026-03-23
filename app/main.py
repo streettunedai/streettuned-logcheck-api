@@ -41,6 +41,10 @@ def parse_uploaded_csv(raw_bytes):
         "fuel pressure",
         "injector pulse width",
         "offset",
+        "stft",
+        "ltft",
+        "wideband",
+        "lambda",
     ]
 
     def looks_like_number(value):
@@ -179,6 +183,7 @@ def canonical_alias_map():
         "RPM": [
             "Engine RPM",
             "RPM",
+            "Engine Speed",
         ],
         "MAP_kPa": [
             "Intake Manifold Absolute Pressure (SAE)",
@@ -192,22 +197,28 @@ def canonical_alias_map():
             "Timing Advance",
             "Spark Advance",
             "Spark",
+            "Ignition Timing",
         ],
         "KR_deg": [
             "Knock Retard",
             "KR",
+            "Spark Retard",
         ],
         "TotalKR_deg": [
             "Total Knock Retard",
+            "Total KR",
         ],
         "EQ_Cmd": [
             "Equivalence Ratio Commanded (SAE)",
             "Commanded EQ Ratio",
             "Commanded EQ",
+            "EQ Ratio Commanded",
+            "Lambda Commanded",
         ],
         "AFR_Cmd": [
             "Air-Fuel Ratio Commanded",
             "Commanded AFR",
+            "AFR Commanded",
         ],
         "FuelSys1_Status": [
             "Fuel System #1 Status (SAE)",
@@ -218,36 +229,51 @@ def canonical_alias_map():
             "STFT B1",
             "Short Term FT B1",
             "Short Term Fuel Trim Bank 1",
+            "Short Term Fuel Trim B1",
+            "FT Short B1",
+            "Short FT B1",
         ],
         "STFT_B2": [
             "STFT Bank 2",
             "STFT B2",
             "Short Term FT B2",
             "Short Term Fuel Trim Bank 2",
+            "Short Term Fuel Trim B2",
+            "FT Short B2",
+            "Short FT B2",
         ],
         "LTFT_B1": [
             "LTFT Bank 1",
             "LTFT B1",
             "Long Term FT B1",
             "Long Term Fuel Trim Bank 1",
+            "Long Term Fuel Trim B1",
+            "FT Long B1",
+            "Long FT B1",
         ],
         "LTFT_B2": [
             "LTFT Bank 2",
             "LTFT B2",
             "Long Term FT B2",
             "Long Term Fuel Trim Bank 2",
+            "Long Term Fuel Trim B2",
+            "FT Long B2",
+            "Long FT B2",
         ],
         "TPS_pct": [
             "Throttle Position",
             "Throttle Position (%)",
             "Throttle Position (SAE)",
             "TPS",
+            "Throttle %",
         ],
         "APP_pct": [
             "Accelerator Pedal Position",
             "APP",
             "APP %",
             "Accelerator Pedal",
+            "Pedal Position",
+            "Accelerator Position",
         ],
         "InjPW_ms": [
             "Injector Pulse Width",
@@ -255,39 +281,53 @@ def canonical_alias_map():
             "Avg. Injector Pulse Width",
             "Average Injector Pulse Width",
             "Injector Pulse Width Bank 1",
+            "Injector Pulse Width B1",
+            "Base Pulse Width",
+            "Pulse Width",
+            "Inj PW",
         ],
         "MAF_gps": [
             "Mass Airflow",
             "MAF",
             "MAF Airflow Rate (SAE)",
+            "Mass Air Flow",
+            "MAF Frequency Airflow",
+            "Airflow From MAF",
         ],
         "DynAir_gps": [
             "Dynamic Airflow",
             "Dyn Air",
             "Dynamic Cylinder Air",
+            "Cylinder Airmass",
         ],
         "IAT": [
             "Intake Air Temp",
             "IAT",
             "Intake Air Temperature",
+            "IAT Sensor",
         ],
         "ECT": [
             "Engine Coolant Temp",
             "ECT",
             "Coolant Temp",
+            "Engine Coolant Temperature",
         ],
         "VehicleSpeed": [
             "Vehicle Speed",
             "Speed",
             "Vehicle Speed (SAE)",
+            "MPH",
         ],
         "PE_Status": [
             "Power Enrichment",
             "PE",
+            "PE Enable",
         ],
         "FuelPressure": [
             "Fuel Pressure (SAE)",
             "Fuel Pressure",
+            "Rail Pressure",
+            "Fuel Rail Pressure",
         ],
         "OilPressure": [
             "Engine Oil Pressure",
@@ -297,6 +337,8 @@ def canonical_alias_map():
             "Ethanol Fuel %",
             "Ethanol %",
             "Alcohol %",
+            "Flex Fuel %",
+            "Flex Sensor Alcohol %",
         ],
         "DFCO_Status": [
             "DFCO Active",
@@ -305,16 +347,20 @@ def canonical_alias_map():
         "O2_B1S1": [
             "O2 Voltage B1S1",
             "O2 B1S1",
+            "Bank 1 Sensor 1 O2 Voltage",
         ],
         "O2_B2S1": [
             "O2 Voltage B2S1",
             "O2 B2S1",
+            "Bank 2 Sensor 1 O2 Voltage",
         ],
         "AFR_Act": [
             "AFR Wideband",
             "Wideband AFR",
             "Air Fuel Ratio Wideband",
             "AFR Actual",
+            "Measured AFR",
+            "Actual AFR",
         ],
         "Lambda_Act": [
             "Lambda Wideband",
@@ -322,6 +368,8 @@ def canonical_alias_map():
             "Lambda Actual",
             "EQ Ratio Actual",
             "Equivalence Ratio Actual",
+            "Measured Lambda",
+            "Actual Lambda",
         ],
     }
 
@@ -461,6 +509,133 @@ def normalize_map_series_to_kpa(series):
     }
 
 
+def detect_idle_segments(ndf):
+    import pandas as pd
+
+    if "RPM" not in ndf.columns:
+        return {
+            "idle_metrics": {},
+            "idle_row_count": 0
+        }
+
+    mask = pd.Series(True, index=ndf.index)
+
+    if "VehicleSpeed" in ndf.columns:
+        mask = mask & (ndf["VehicleSpeed"].fillna(999) <= 2.0)
+
+    if "APP_pct" in ndf.columns:
+        mask = mask & (ndf["APP_pct"].fillna(999) <= 5.0)
+
+    if "TPS_pct" in ndf.columns:
+        mask = mask & (ndf["TPS_pct"].fillna(999) <= 20.0)
+
+    if "MAP_kPa" in ndf.columns:
+        map_series = ndf["MAP_kPa"].fillna(999)
+        mask = mask & (map_series >= 15.0) & (map_series <= 55.0)
+
+    idle_df = ndf[mask].copy()
+
+    if idle_df.empty or len(idle_df) < 5:
+        return {
+            "idle_metrics": {},
+            "idle_row_count": int(len(idle_df))
+        }
+
+    idle_metrics = {}
+    rpm_stats = series_min_max(idle_df["RPM"])
+    rpm_mean = series_mean(idle_df["RPM"])
+    if rpm_stats:
+        idle_metrics["rpm_min"] = rpm_stats["min"]
+        idle_metrics["rpm_max"] = rpm_stats["max"]
+    if rpm_mean is not None:
+        idle_metrics["rpm_mean"] = rpm_mean
+
+    if "TPS_pct" in idle_df.columns:
+        tps_mean = series_mean(idle_df["TPS_pct"])
+        if tps_mean is not None:
+            idle_metrics["tps_mean"] = tps_mean
+
+    if "APP_pct" in idle_df.columns:
+        app_mean = series_mean(idle_df["APP_pct"])
+        if app_mean is not None:
+            idle_metrics["app_mean"] = app_mean
+
+    if "MAP_kPa" in idle_df.columns:
+        map_mean = series_mean(idle_df["MAP_kPa"])
+        if map_mean is not None:
+            idle_metrics["map_mean_kpa"] = map_mean
+
+    if "VehicleSpeed" in idle_df.columns:
+        speed_mean = series_mean(idle_df["VehicleSpeed"])
+        if speed_mean is not None:
+            idle_metrics["vehicle_speed_mean"] = speed_mean
+
+    return {
+        "idle_metrics": idle_metrics,
+        "idle_row_count": int(len(idle_df))
+    }
+
+
+def extract_kr_events(ndf):
+    import pandas as pd
+
+    if "KR_deg" not in ndf.columns:
+        return []
+
+    work = pd.DataFrame(index=ndf.index)
+    work["KR_deg"] = pd.to_numeric(ndf["KR_deg"], errors="coerce")
+    work["RPM"] = pd.to_numeric(ndf["RPM"], errors="coerce") if "RPM" in ndf.columns else pd.NA
+    work["Time_sec"] = pd.to_numeric(ndf["Time_sec"], errors="coerce") if "Time_sec" in ndf.columns else pd.NA
+
+    work = work.dropna(subset=["KR_deg"])
+    if work.empty:
+        return []
+
+    threshold = 0.5
+    active = work["KR_deg"] > threshold
+    if not active.any():
+        return []
+
+    group_id = (active != active.shift(fill_value=False)).cumsum()
+    events = []
+
+    for gid, grp in work.groupby(group_id):
+        grp_active = active.loc[grp.index].iloc[0]
+        if not grp_active:
+            continue
+
+        peak_kr = float(grp["KR_deg"].max())
+        start_time = None
+        end_time = None
+        rpm_min = None
+        rpm_max = None
+
+        if "Time_sec" in grp.columns:
+            t = grp["Time_sec"].dropna()
+            if not t.empty:
+                start_time = float(t.min())
+                end_time = float(t.max())
+
+        if "RPM" in grp.columns:
+            r = grp["RPM"].dropna()
+            if not r.empty:
+                rpm_min = float(r.min())
+                rpm_max = float(r.max())
+
+        events.append({
+            "start_time_sec": start_time,
+            "end_time_sec": end_time,
+            "duration_sec": (end_time - start_time) if start_time is not None and end_time is not None else None,
+            "rpm_min": rpm_min,
+            "rpm_max": rpm_max,
+            "peak_kr_deg": peak_kr,
+            "row_count": int(len(grp))
+        })
+
+    events = sorted(events, key=lambda x: x["peak_kr_deg"], reverse=True)
+    return events[:10]
+
+
 @app.post("/validate")
 async def validate(file: UploadFile = File(...)):
     raw = await file.read()
@@ -581,15 +756,9 @@ async def analyze(file: UploadFile = File(...)):
         if max_imbalance is not None:
             closed_loop["max_bank_to_bank_imbalance"] = max_imbalance
 
-    idle = {}
-    if "RPM" in ndf.columns:
-        rpm_mean = series_mean(ndf["RPM"])
-        rpm_stats = series_min_max(ndf["RPM"])
-        if rpm_mean is not None:
-            idle["rpm_mean_full_log"] = rpm_mean
-        if rpm_stats is not None:
-            idle["rpm_min_full_log"] = rpm_stats["min"]
-            idle["rpm_max_full_log"] = rpm_stats["max"]
+    idle_result = detect_idle_segments(ndf)
+    idle = idle_result["idle_metrics"]
+    idle["idle_row_count"] = idle_result["idle_row_count"]
 
     injector_estimate = {}
     if "InjPW_ms" in ndf.columns and "RPM" in ndf.columns:
@@ -599,6 +768,8 @@ async def analyze(file: UploadFile = File(...)):
         duty_max = series_max(duty_est)
         if duty_max is not None:
             injector_estimate["estimated_duty_cycle_percent"] = duty_max
+
+    kr_events = extract_kr_events(ndf)
 
     hard_stops = []
 
@@ -676,6 +847,10 @@ async def analyze(file: UploadFile = File(...)):
 
     if closed_loop:
         analysis_notes.append("Closed-loop trims are available for part-throttle analysis.")
+    if idle_result["idle_row_count"] >= 5:
+        analysis_notes.append("Idle metrics were calculated from low-speed, low-pedal, low-throttle rows only.")
+    if kr_events:
+        analysis_notes.append("KR event windows were extracted from contiguous KR segments above 0.5 degrees.")
     if not has_actual_wideband:
         analysis_notes.append("Narrowband O2 voltage does not count as actual AFR/lambda.")
     if "PE_Status" in ndf.columns:
@@ -703,6 +878,7 @@ async def analyze(file: UploadFile = File(...)):
         "closed_loop": closed_loop,
         "idle": idle,
         "injector_estimate": injector_estimate,
+        "kr_events": kr_events,
         "unit_sanity": {
             "map": map_info
         },
