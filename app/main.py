@@ -4,6 +4,11 @@ from typing import Any, Dict, Tuple
 
 from fastapi import FastAPI, HTTPException, Request
 
+from app.analyzers.duramax import (
+    CANONICAL_ALIASES as DURAMAX_CANONICAL_ALIASES,
+    analyze_dataframe as duramax_analyze_dataframe,
+    validate_dataframe as duramax_validate_dataframe,
+)
 from app.analyzers.ls_gas import CANONICAL_ALIASES, analyze_dataframe, validate_dataframe
 from app.core.intake import extract_input_payload
 from app.core.parser import parse_csv_bytes
@@ -17,13 +22,15 @@ def resolve_platform(request: Request) -> str:
     if platform in {"ls", "ls_gas"}:
         return "ls"
     if platform == "duramax":
-        raise HTTPException(status_code=501, detail="Duramax analyzer is not enabled yet.")
+        return "duramax"
     raise HTTPException(status_code=400, detail=f"Unsupported platform '{platform}'.")
 
 
 def get_platform_handlers(platform: str) -> Tuple[Dict[str, Any], Any, Any]:
     if platform == "ls":
         return CANONICAL_ALIASES, validate_dataframe, analyze_dataframe
+    if platform == "duramax":
+        return DURAMAX_CANONICAL_ALIASES, duramax_validate_dataframe, duramax_analyze_dataframe
     raise HTTPException(status_code=400, detail=f"Unsupported platform '{platform}'.")
 
 
