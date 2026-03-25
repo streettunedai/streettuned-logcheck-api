@@ -1,0 +1,725 @@
+{
+  "version": "1.0.0",
+  "description": "Canonical channel definitions for scanner pack normalization and analyzer reuse.",
+  "channels": [
+    {
+      "canonical_name": "Time_sec",
+      "display_names": [
+        "Time (s)"
+      ],
+      "aliases": [
+        "Time",
+        "Offset"
+      ],
+      "units": "s",
+      "category": "core_drivability",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Shared canonical dictionary entry.",
+      "applicable_platforms": [
+        "all"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "RPM",
+      "display_names": [
+        "Engine RPM"
+      ],
+      "aliases": [
+        "Engine Speed",
+        "Engine Speed (SAE)"
+      ],
+      "units": "rpm",
+      "category": "core_drivability",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Shared canonical dictionary entry.",
+      "applicable_platforms": [
+        "all"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "VSS_mph",
+      "display_names": [
+        "Vehicle Speed"
+      ],
+      "aliases": [
+        "Speed",
+        "Vehicle Speed (SAE)"
+      ],
+      "units": "mph",
+      "category": "core_drivability",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Shared canonical dictionary entry.",
+      "applicable_platforms": [
+        "all"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "ECT_C",
+      "display_names": [
+        "Engine Coolant Temp"
+      ],
+      "aliases": [
+        "Coolant Temp",
+        "ECT"
+      ],
+      "units": "C",
+      "category": "idle_startup",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Shared canonical dictionary entry.",
+      "applicable_platforms": [
+        "all"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "IAT_C",
+      "display_names": [
+        "Intake Air Temp"
+      ],
+      "aliases": [
+        "IAT",
+        "Intake Air Temp (SAE)"
+      ],
+      "units": "C",
+      "category": "airflow_load",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Shared canonical dictionary entry.",
+      "applicable_platforms": [
+        "all"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "MAP_kPa",
+      "display_names": [
+        "Manifold Absolute Pressure"
+      ],
+      "aliases": [
+        "MAP",
+        "MAP (SAE)"
+      ],
+      "units": "kPa",
+      "category": "airflow_load",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Shared canonical dictionary entry.",
+      "applicable_platforms": [
+        "all"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "Boost_kPa",
+      "display_names": [
+        "Boost Pressure"
+      ],
+      "aliases": [
+        "Boost",
+        "Boost/Vacuum"
+      ],
+      "units": "kPa",
+      "category": "boosted",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Shared canonical dictionary entry.",
+      "applicable_platforms": [
+        "all"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "MAF_gps",
+      "display_names": [
+        "MAF Airflow"
+      ],
+      "aliases": [
+        "Mass Air Flow",
+        "MAF"
+      ],
+      "units": "g/s",
+      "category": "airflow_load",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Shared canonical dictionary entry.",
+      "applicable_platforms": [
+        "all"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "MAF_Hz",
+      "display_names": [
+        "MAF Frequency"
+      ],
+      "aliases": [
+        "MAF Airflow Frequency",
+        "MAF Hz"
+      ],
+      "units": "Hz",
+      "category": "maf_tuning",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Shared canonical dictionary entry.",
+      "applicable_platforms": [
+        "all"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "Spark_deg",
+      "display_names": [
+        "Spark Advance"
+      ],
+      "aliases": [
+        "Timing Advance (SAE)",
+        "Ignition Timing"
+      ],
+      "units": "deg",
+      "category": "spark_knock",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Shared canonical dictionary entry.",
+      "applicable_platforms": [
+        "all"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "KR_deg",
+      "display_names": [
+        "Knock Retard"
+      ],
+      "aliases": [
+        "KR",
+        "Total Knock Retard"
+      ],
+      "units": "deg",
+      "category": "spark_knock",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Shared canonical dictionary entry.",
+      "applicable_platforms": [
+        "all"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "STFT1_pct",
+      "display_names": [
+        "Short Term FT B1"
+      ],
+      "aliases": [
+        "STFT B1"
+      ],
+      "units": "%",
+      "category": "fuel_trims",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Shared canonical dictionary entry.",
+      "applicable_platforms": [
+        "all"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "LTFT1_pct",
+      "display_names": [
+        "Long Term FT B1"
+      ],
+      "aliases": [
+        "LTFT B1"
+      ],
+      "units": "%",
+      "category": "fuel_trims",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Shared canonical dictionary entry.",
+      "applicable_platforms": [
+        "all"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "STFT2_pct",
+      "display_names": [
+        "Short Term FT B2"
+      ],
+      "aliases": [
+        "STFT B2"
+      ],
+      "units": "%",
+      "category": "fuel_trims",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Shared canonical dictionary entry.",
+      "applicable_platforms": [
+        "all"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "LTFT2_pct",
+      "display_names": [
+        "Long Term FT B2"
+      ],
+      "aliases": [
+        "LTFT B2"
+      ],
+      "units": "%",
+      "category": "fuel_trims",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Shared canonical dictionary entry.",
+      "applicable_platforms": [
+        "all"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "EQ_Cmd",
+      "display_names": [
+        "Commanded EQ Ratio"
+      ],
+      "aliases": [
+        "Equivalence Ratio Commanded (SAE)"
+      ],
+      "units": "ratio",
+      "category": "fuel_system",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Shared canonical dictionary entry.",
+      "applicable_platforms": [
+        "all"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "Lambda",
+      "display_names": [
+        "Wideband Lambda"
+      ],
+      "aliases": [
+        "Lambda 1",
+        "External Wideband Lambda"
+      ],
+      "units": "lambda",
+      "category": "fuel_system",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Shared canonical dictionary entry.",
+      "applicable_platforms": [
+        "all"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "FuelRailPressure_kPa",
+      "display_names": [
+        "Fuel Rail Pressure"
+      ],
+      "aliases": [
+        "Rail Pressure",
+        "Fuel Rail Pressure (kPa)"
+      ],
+      "units": "kPa",
+      "category": "fuel_system",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Shared canonical dictionary entry.",
+      "applicable_platforms": [
+        "all"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "FuelRailPressureDesired_kPa",
+      "display_names": [
+        "Fuel Rail Pressure Desired"
+      ],
+      "aliases": [
+        "Desired Fuel Rail Pressure"
+      ],
+      "units": "kPa",
+      "category": "fuel_system",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Shared canonical dictionary entry.",
+      "applicable_platforms": [
+        "all"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "InjectorPW_ms",
+      "display_names": [
+        "Injector Pulse Width"
+      ],
+      "aliases": [
+        "Inj PW",
+        "Pulse Width"
+      ],
+      "units": "ms",
+      "category": "fuel_system",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Shared canonical dictionary entry.",
+      "applicable_platforms": [
+        "all"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "APP_pct",
+      "display_names": [
+        "Accelerator Pedal Position"
+      ],
+      "aliases": [
+        "APP",
+        "APP %"
+      ],
+      "units": "%",
+      "category": "torque_throttle_control",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Shared canonical dictionary entry.",
+      "applicable_platforms": [
+        "all"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "Throttle_Actual_pct",
+      "display_names": [
+        "Throttle Position"
+      ],
+      "aliases": [
+        "ETC Throttle Position",
+        "Actual Throttle Position"
+      ],
+      "units": "%",
+      "category": "torque_throttle_control",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Shared canonical dictionary entry.",
+      "applicable_platforms": [
+        "all"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "Throttle_Desired_pct",
+      "display_names": [
+        "Desired Throttle Position"
+      ],
+      "aliases": [
+        "Throttle Desired"
+      ],
+      "units": "%",
+      "category": "torque_throttle_control",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Shared canonical dictionary entry.",
+      "applicable_platforms": [
+        "all"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "Torque_Actual_Nm",
+      "display_names": [
+        "Engine Torque"
+      ],
+      "aliases": [
+        "Delivered Engine Torque"
+      ],
+      "units": "Nm",
+      "category": "torque_throttle_control",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Shared canonical dictionary entry.",
+      "applicable_platforms": [
+        "all"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "Torque_Desired_Nm",
+      "display_names": [
+        "Engine Torque Desired"
+      ],
+      "aliases": [
+        "Driver Demand Torque"
+      ],
+      "units": "Nm",
+      "category": "torque_throttle_control",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Shared canonical dictionary entry.",
+      "applicable_platforms": [
+        "all"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "TransGear",
+      "display_names": [
+        "Current Gear"
+      ],
+      "aliases": [
+        "Gear",
+        "Trans Gear"
+      ],
+      "units": "gear",
+      "category": "transmission",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Shared canonical dictionary entry.",
+      "applicable_platforms": [
+        "all"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "TCC_Slip_rpm",
+      "display_names": [
+        "TCC Slip Speed"
+      ],
+      "aliases": [
+        "Converter Slip"
+      ],
+      "units": "rpm",
+      "category": "transmission",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Shared canonical dictionary entry.",
+      "applicable_platforms": [
+        "all"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "LinePressure_kPa",
+      "display_names": [
+        "Trans Line Pressure"
+      ],
+      "aliases": [
+        "Line Pressure"
+      ],
+      "units": "kPa",
+      "category": "transmission",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Shared canonical dictionary entry.",
+      "applicable_platforms": [
+        "all"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "RailPressure_MPa",
+      "display_names": [
+        "Fuel Rail Pressure"
+      ],
+      "aliases": [
+        "Fuel Rail Pressure (MPa)"
+      ],
+      "units": "MPa",
+      "category": "rail_pressure_fuel_system",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Shared canonical dictionary entry.",
+      "applicable_platforms": [
+        "all"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "RailPressureDesired_MPa",
+      "display_names": [
+        "Fuel Rail Pressure Desired"
+      ],
+      "aliases": [
+        "Desired Fuel Rail Pressure (MPa)"
+      ],
+      "units": "MPa",
+      "category": "rail_pressure_fuel_system",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Shared canonical dictionary entry.",
+      "applicable_platforms": [
+        "all"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "VanePos_pct",
+      "display_names": [
+        "Turbo Vane Position"
+      ],
+      "aliases": [
+        "VGT Position"
+      ],
+      "units": "%",
+      "category": "boost_airflow_vane_control",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Shared canonical dictionary entry.",
+      "applicable_platforms": [
+        "all"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "VaneCmd_pct",
+      "display_names": [
+        "Desired Vane Position"
+      ],
+      "aliases": [
+        "VGT Desired"
+      ],
+      "units": "%",
+      "category": "boost_airflow_vane_control",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Shared canonical dictionary entry.",
+      "applicable_platforms": [
+        "all"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "EBP_kPa",
+      "display_names": [
+        "Exhaust Back Pressure"
+      ],
+      "aliases": [
+        "Exhaust Pressure"
+      ],
+      "units": "kPa",
+      "category": "boost_airflow_vane_control",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Shared canonical dictionary entry.",
+      "applicable_platforms": [
+        "all"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "RegenState",
+      "display_names": [
+        "DPF Regen Status"
+      ],
+      "aliases": [
+        "Regeneration Status"
+      ],
+      "units": "state",
+      "category": "emissions_regen",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Shared canonical dictionary entry.",
+      "applicable_platforms": [
+        "all"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "DPF_SootLoad_pct",
+      "display_names": [
+        "DPF Soot Load"
+      ],
+      "aliases": [
+        "Soot Mass"
+      ],
+      "units": "%",
+      "category": "emissions_regen",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Shared canonical dictionary entry.",
+      "applicable_platforms": [
+        "all"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "FuelPressureLow_kPa",
+      "display_names": [
+        "Low Side Fuel Pressure"
+      ],
+      "aliases": [
+        "Fuel Pump Pressure"
+      ],
+      "units": "kPa",
+      "category": "fuel_system",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Shared canonical dictionary entry.",
+      "applicable_platforms": [
+        "all"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "Ethanol_pct",
+      "display_names": [
+        "Alcohol Content"
+      ],
+      "aliases": [
+        "Ethanol Content"
+      ],
+      "units": "%",
+      "category": "fuel_system",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Shared canonical dictionary entry.",
+      "applicable_platforms": [
+        "all"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "HPFP_Pressure_kPa",
+      "display_names": [
+        "High Pressure Fuel"
+      ],
+      "aliases": [
+        "DI Rail Pressure"
+      ],
+      "units": "kPa",
+      "category": "fuel_system",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Shared canonical dictionary entry.",
+      "applicable_platforms": [
+        "all"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "MisfireCount",
+      "display_names": [
+        "Misfire Current Cylinder"
+      ],
+      "aliases": [
+        "Cylinder Misfire"
+      ],
+      "units": "count",
+      "category": "core_drivability",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Shared canonical dictionary entry.",
+      "applicable_platforms": [
+        "all"
+      ],
+      "dependencies": []
+    }
+  ]
+}

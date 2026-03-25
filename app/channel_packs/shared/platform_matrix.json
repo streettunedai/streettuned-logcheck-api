@@ -1,0 +1,136 @@
+{
+  "version": "1.0.0",
+  "platforms": [
+    {
+      "platform": "gm_gen3",
+      "engine_family": "GM LS Gen3",
+      "fuel_system": "port injection",
+      "transmission_support": [
+        "4L60E",
+        "4L80E"
+      ],
+      "emissions_features": [
+        "none_required"
+      ],
+      "forced_induction_possible": true
+    },
+    {
+      "platform": "gm_gen4",
+      "engine_family": "GM LS Gen4",
+      "fuel_system": "port injection",
+      "transmission_support": [
+        "4L60E",
+        "4L80E",
+        "6L80"
+      ],
+      "emissions_features": [
+        "none_required"
+      ],
+      "forced_induction_possible": true
+    },
+    {
+      "platform": "gm_gen5",
+      "engine_family": "GM LT Gen5",
+      "fuel_system": "direct injection",
+      "transmission_support": [
+        "6L80",
+        "8L90",
+        "10L80"
+      ],
+      "emissions_features": [
+        "catalyst_monitoring"
+      ],
+      "forced_induction_possible": true
+    },
+    {
+      "platform": "duramax_lb7_lly",
+      "engine_family": "Duramax LB7/LLY",
+      "fuel_system": "common rail diesel",
+      "transmission_support": [
+        "Allison 1000"
+      ],
+      "emissions_features": [
+        "minimal_pre_dpf"
+      ],
+      "forced_induction_possible": false
+    },
+    {
+      "platform": "duramax_lbz_lmm",
+      "engine_family": "Duramax LBZ/LMM",
+      "fuel_system": "common rail diesel",
+      "transmission_support": [
+        "Allison 1000"
+      ],
+      "emissions_features": [
+        "egr_limited_dpf_on_lmm"
+      ],
+      "forced_induction_possible": false
+    },
+    {
+      "platform": "duramax_lml",
+      "engine_family": "Duramax LML",
+      "fuel_system": "common rail diesel",
+      "transmission_support": [
+        "Allison 1000"
+      ],
+      "emissions_features": [
+        "dpf_regen",
+        "scr"
+      ],
+      "forced_induction_possible": false
+    },
+    {
+      "platform": "duramax_l5p",
+      "engine_family": "Duramax L5P",
+      "fuel_system": "common rail diesel",
+      "transmission_support": [
+        "Allison 1000/10L1000"
+      ],
+      "emissions_features": [
+        "dpf_regen",
+        "scr"
+      ],
+      "forced_induction_possible": false
+    },
+    {
+      "platform": "coyote_gen1",
+      "engine_family": "Ford Coyote Gen1",
+      "fuel_system": "port injection",
+      "transmission_support": [
+        "6R80",
+        "MT82"
+      ],
+      "emissions_features": [
+        "catalyst_monitoring"
+      ],
+      "forced_induction_possible": true
+    },
+    {
+      "platform": "coyote_gen2",
+      "engine_family": "Ford Coyote Gen2",
+      "fuel_system": "port injection",
+      "transmission_support": [
+        "6R80",
+        "MT82"
+      ],
+      "emissions_features": [
+        "catalyst_monitoring"
+      ],
+      "forced_induction_possible": true
+    },
+    {
+      "platform": "coyote_gen3",
+      "engine_family": "Ford Coyote Gen3",
+      "fuel_system": "dual injection",
+      "transmission_support": [
+        "10R80",
+        "MT82"
+      ],
+      "emissions_features": [
+        "catalyst_monitoring",
+        "gpf_not_common_usdm"
+      ],
+      "forced_induction_possible": true
+    }
+  ]
+}

@@ -1,0 +1,119 @@
+{
+  "version": "1.0.0",
+  "header_mapping": {
+    "use_alias_map": "shared/alias_map.json",
+    "allow_substring_match": true,
+    "minimum_alias_confidence": 0.8
+  },
+  "sae_vs_non_sae": {
+    "normalize_equivalent_headers": true,
+    "prefer_non_sae_canonical": true
+  },
+  "missing_required_channels": {
+    "severity": "error",
+    "action": "block_histograms_and_grade_log",
+    "message": "Required channels missing for platform minimum."
+  },
+  "minimum_valid_log_requirements": {
+    "gm_gen3": [
+      "Time_sec",
+      "RPM",
+      "MAP_kPa",
+      "Throttle_Actual_pct"
+    ],
+    "gm_gen4": [
+      "Time_sec",
+      "RPM",
+      "MAP_kPa",
+      "Throttle_Actual_pct"
+    ],
+    "gm_gen5": [
+      "Time_sec",
+      "RPM",
+      "MAP_kPa",
+      "Throttle_Actual_pct",
+      "Torque_Actual_Nm"
+    ],
+    "duramax_lb7_lly": [
+      "Time_sec",
+      "RPM",
+      "MAP_kPa",
+      "RailPressure_MPa"
+    ],
+    "duramax_lbz_lmm": [
+      "Time_sec",
+      "RPM",
+      "MAP_kPa",
+      "RailPressure_MPa",
+      "VanePos_pct"
+    ],
+    "duramax_lml": [
+      "Time_sec",
+      "RPM",
+      "MAP_kPa",
+      "RailPressure_MPa",
+      "RegenState"
+    ],
+    "duramax_l5p": [
+      "Time_sec",
+      "RPM",
+      "MAP_kPa",
+      "RailPressure_MPa",
+      "VanePos_pct",
+      "RegenState"
+    ],
+    "coyote_gen1": [
+      "Time_sec",
+      "RPM",
+      "MAF_Hz",
+      "Throttle_Actual_pct"
+    ],
+    "coyote_gen2": [
+      "Time_sec",
+      "RPM",
+      "MAF_Hz",
+      "Throttle_Actual_pct"
+    ],
+    "coyote_gen3": [
+      "Time_sec",
+      "RPM",
+      "MAF_Hz",
+      "Throttle_Actual_pct",
+      "HPFP_Pressure_kPa"
+    ]
+  },
+  "fallback_logic": [
+    {
+      "target": "Boost_kPa",
+      "preferred": "Boost_kPa",
+      "fallbacks": [
+        "MAP_kPa"
+      ],
+      "rule": "if MAP_kPa used, analyzer must convert to gauge where needed."
+    },
+    {
+      "target": "FuelRailPressure_kPa",
+      "preferred": "FuelRailPressure_kPa",
+      "fallbacks": [
+        "RailPressure_MPa"
+      ],
+      "rule": "convert MPa to kPa x1000."
+    },
+    {
+      "target": "Lambda",
+      "preferred": "Lambda",
+      "fallbacks": [
+        "EQ_Cmd"
+      ],
+      "rule": "use commanded only for open-loop validation, not closed-loop error."
+    },
+    {
+      "target": "Throttle_Actual_pct",
+      "preferred": "Throttle_Actual_pct",
+      "fallbacks": [
+        "TPS_pct"
+      ],
+      "rule": "mark uncertainty when fallback used."
+    }
+  ]
+}

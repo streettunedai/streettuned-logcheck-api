@@ -1,0 +1,461 @@
+{
+  "platform": "gm_gen3",
+  "channel_groups": [
+    {
+      "canonical_name": "Time_sec",
+      "display_names": [
+        "Time (s)"
+      ],
+      "aliases": [
+        "Time",
+        "Elapsed Time"
+      ],
+      "units": "s",
+      "category": "core drivability",
+      "required_level": "required",
+      "source_type": "direct_pid",
+      "notes": "Primary time base.",
+      "applicable_platforms": [
+        "gm_gen3"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "RPM",
+      "display_names": [
+        "Engine RPM"
+      ],
+      "aliases": [
+        "Engine Speed",
+        "Engine Speed (SAE)"
+      ],
+      "units": "rpm",
+      "category": "core drivability",
+      "required_level": "required",
+      "source_type": "direct_pid",
+      "notes": "Required for all histogram indexing.",
+      "applicable_platforms": [
+        "gm_gen3"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "VSS_mph",
+      "display_names": [
+        "Vehicle Speed"
+      ],
+      "aliases": [
+        "Speed",
+        "Vehicle Speed (SAE)"
+      ],
+      "units": "mph",
+      "category": "core drivability",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Use to isolate cruise and shifts.",
+      "applicable_platforms": [
+        "gm_gen3"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "APP_pct",
+      "display_names": [
+        "Accelerator Pedal Position"
+      ],
+      "aliases": [
+        "APP",
+        "APP %"
+      ],
+      "units": "%",
+      "category": "core drivability",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Driver demand for torque/throttle studies.",
+      "applicable_platforms": [
+        "gm_gen3"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "Throttle_Actual_pct",
+      "display_names": [
+        "Throttle Position"
+      ],
+      "aliases": [
+        "ETC Throttle Position",
+        "Actual Throttle Position"
+      ],
+      "units": "%",
+      "category": "core drivability",
+      "required_level": "required",
+      "source_type": "direct_pid",
+      "notes": "Use actual blade angle for ETC checks.",
+      "applicable_platforms": [
+        "gm_gen3"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "ECT_C",
+      "display_names": [
+        "Engine Coolant Temp"
+      ],
+      "aliases": [
+        "Coolant Temp",
+        "ECT"
+      ],
+      "units": "C",
+      "category": "idle/startup",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Ensure warm engine before trim conclusions.",
+      "applicable_platforms": [
+        "gm_gen3"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "IAT_C",
+      "display_names": [
+        "Intake Air Temp"
+      ],
+      "aliases": [
+        "IAT",
+        "Intake Air Temp (SAE)"
+      ],
+      "units": "C",
+      "category": "idle/startup",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Needed for hot restart bias checks.",
+      "applicable_platforms": [
+        "gm_gen3"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "STFT1_pct",
+      "display_names": [
+        "Short Term FT B1"
+      ],
+      "aliases": [
+        "STFT B1"
+      ],
+      "units": "%",
+      "category": "cruise/fuel trim",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Closed-loop correction bank 1.",
+      "applicable_platforms": [
+        "gm_gen3"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "LTFT1_pct",
+      "display_names": [
+        "Long Term FT B1"
+      ],
+      "aliases": [
+        "LTFT B1"
+      ],
+      "units": "%",
+      "category": "cruise/fuel trim",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Learned correction bank 1.",
+      "applicable_platforms": [
+        "gm_gen3"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "STFT2_pct",
+      "display_names": [
+        "Short Term FT B2"
+      ],
+      "aliases": [
+        "STFT B2"
+      ],
+      "units": "%",
+      "category": "cruise/fuel trim",
+      "required_level": "optional",
+      "source_type": "direct_pid",
+      "notes": "Bank 2 only for V engines.",
+      "applicable_platforms": [
+        "gm_gen3"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "LTFT2_pct",
+      "display_names": [
+        "Long Term FT B2"
+      ],
+      "aliases": [
+        "LTFT B2"
+      ],
+      "units": "%",
+      "category": "cruise/fuel trim",
+      "required_level": "optional",
+      "source_type": "direct_pid",
+      "notes": "Bank 2 only for V engines.",
+      "applicable_platforms": [
+        "gm_gen3"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "MAP_kPa",
+      "display_names": [
+        "Manifold Absolute Pressure"
+      ],
+      "aliases": [
+        "MAP",
+        "MAP (SAE)"
+      ],
+      "units": "kPa",
+      "category": "airflow/load",
+      "required_level": "required",
+      "source_type": "direct_pid",
+      "notes": "Use with RPM for VE/load histograms.",
+      "applicable_platforms": [
+        "gm_gen3"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "MAF_Hz",
+      "display_names": [
+        "MAF Frequency"
+      ],
+      "aliases": [
+        "MAF Hz",
+        "MAF Airflow Frequency"
+      ],
+      "units": "Hz",
+      "category": "airflow/load",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Primary axis for MAF curve tuning.",
+      "applicable_platforms": [
+        "gm_gen3"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "MAF_gps",
+      "display_names": [
+        "MAF Airflow"
+      ],
+      "aliases": [
+        "Mass Air Flow",
+        "MAF"
+      ],
+      "units": "g/s",
+      "category": "airflow/load",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Useful where frequency unavailable.",
+      "applicable_platforms": [
+        "gm_gen3"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "Spark_deg",
+      "display_names": [
+        "Spark Advance"
+      ],
+      "aliases": [
+        "Timing Advance (SAE)",
+        "Ignition Timing"
+      ],
+      "units": "deg",
+      "category": "spark/knock",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Track delivered spark vs KR.",
+      "applicable_platforms": [
+        "gm_gen3"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "KR_deg",
+      "display_names": [
+        "Knock Retard"
+      ],
+      "aliases": [
+        "Knock Retard",
+        "Total Knock Retard"
+      ],
+      "units": "deg",
+      "category": "spark/knock",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Per-cylinder KR preferred but not required.",
+      "applicable_platforms": [
+        "gm_gen3"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "EQ_Cmd",
+      "display_names": [
+        "Commanded EQ Ratio"
+      ],
+      "aliases": [
+        "Equivalence Ratio Commanded (SAE)"
+      ],
+      "units": "ratio",
+      "category": "WOT/power",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Open-loop fueling command.",
+      "applicable_platforms": [
+        "gm_gen3"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "Lambda",
+      "display_names": [
+        "Wideband Lambda"
+      ],
+      "aliases": [
+        "Lambda 1",
+        "External Wideband Lambda"
+      ],
+      "units": "lambda",
+      "category": "WOT/power",
+      "required_level": "optional",
+      "source_type": "scanner_only",
+      "notes": "External wideband improves WOT confidence.",
+      "applicable_platforms": [
+        "gm_gen3"
+      ],
+      "dependencies": [
+        "wideband_device"
+      ]
+    },
+    {
+      "canonical_name": "Boost_kPa",
+      "display_names": [
+        "Boost Pressure"
+      ],
+      "aliases": [
+        "Boost",
+        "Boost/Vacuum"
+      ],
+      "units": "kPa",
+      "category": "boosted",
+      "required_level": "optional",
+      "source_type": "math",
+      "notes": "Derived as MAP_kPa - baro when direct boost absent.",
+      "applicable_platforms": [
+        "gm_gen3"
+      ],
+      "dependencies": [
+        "MAP_kPa"
+      ]
+    },
+    {
+      "canonical_name": "FuelRailPressure_kPa",
+      "display_names": [
+        "Fuel Rail Pressure"
+      ],
+      "aliases": [
+        "Fuel Rail Pressure",
+        "Fuel Pressure"
+      ],
+      "units": "kPa",
+      "category": "fuel system",
+      "required_level": "optional",
+      "source_type": "direct_pid",
+      "notes": "GM Gen5 DI often logs rail pressure; Gen3/4 usually low-side only.",
+      "applicable_platforms": [
+        "gm_gen3"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "FuelPressureLow_kPa",
+      "display_names": [
+        "Low Side Fuel Pressure"
+      ],
+      "aliases": [
+        "Fuel Pump Pressure",
+        "Fuel Pressure"
+      ],
+      "units": "kPa",
+      "category": "fuel system",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Critical for boosted returnless systems.",
+      "applicable_platforms": [
+        "gm_gen3"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "InjectorPW_ms",
+      "display_names": [
+        "Injector Pulse Width"
+      ],
+      "aliases": [
+        "Inj PW",
+        "Injector Pulse Width"
+      ],
+      "units": "ms",
+      "category": "fuel system",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Check duty trend under load.",
+      "applicable_platforms": [
+        "gm_gen3"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "TransGear",
+      "display_names": [
+        "Current Gear"
+      ],
+      "aliases": [
+        "Gear",
+        "Trans Gear"
+      ],
+      "units": "gear",
+      "category": "transmission if applicable",
+      "required_level": "optional",
+      "source_type": "direct_pid",
+      "notes": "Needed for shift-specific review.",
+      "applicable_platforms": [
+        "gm_gen3"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "LinePressure_kPa",
+      "display_names": [
+        "Trans Line Pressure"
+      ],
+      "aliases": [
+        "Line Pressure"
+      ],
+      "units": "kPa",
+      "category": "transmission if applicable",
+      "required_level": "optional",
+      "source_type": "direct_pid",
+      "notes": "Available on some GM controller definitions.",
+      "applicable_platforms": [
+        "gm_gen3"
+      ],
+      "dependencies": [
+        "TransGear"
+      ]
+    }
+  ]
+}
