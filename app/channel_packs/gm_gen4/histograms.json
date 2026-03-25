@@ -1,0 +1,264 @@
+{
+  "platform": "gm_gen4",
+  "histograms": [
+    {
+      "name": "gm_airmass_error_by_maf_hz",
+      "purpose": "Populate MAF correction by frequency in closed loop.",
+      "x_axis": {
+        "channel": "MAF_Hz",
+        "units": "Hz"
+      },
+      "y_axis": {
+        "channel": "RPM",
+        "units": "rpm"
+      },
+      "z_value": {
+        "metric": "STFT1_pct + LTFT1_pct",
+        "aggregation": "mean"
+      },
+      "cell_ranges": {
+        "x_bins": [
+          1000,
+          1500,
+          2000,
+          2500,
+          3000,
+          3500,
+          4000,
+          4500,
+          5000,
+          5500,
+          6000,
+          6500,
+          7000,
+          7500,
+          8000,
+          8500,
+          9000,
+          9500,
+          10000,
+          10500,
+          11000,
+          11500,
+          12000
+        ],
+        "y_bins": [
+          400,
+          800,
+          1200,
+          1600,
+          2000,
+          2400,
+          2800,
+          3200,
+          3600,
+          4000,
+          4400,
+          4800,
+          5200,
+          5600,
+          6000,
+          6400
+        ]
+      },
+      "filters": [
+        "ECT_C > 70",
+        "EQ_Cmd <= 1.02",
+        "Throttle_Actual_pct < 45",
+        "RPM > 900"
+      ],
+      "smoothing_guidance": "Use 0.2 to 0.35 exponential smoothing before applying curve changes.",
+      "required_channels": [
+        "MAF_Hz",
+        "RPM",
+        "STFT1_pct",
+        "LTFT1_pct",
+        "ECT_C",
+        "EQ_Cmd",
+        "Throttle_Actual_pct"
+      ],
+      "when_not_to_use": [
+        "Do not use during PE, DFCO, or transient throttle stabs."
+      ]
+    },
+    {
+      "name": "gm_ve_error_map_rpm",
+      "purpose": "VE correction surface for speed-density segments.",
+      "x_axis": {
+        "channel": "MAP_kPa",
+        "units": "kPa"
+      },
+      "y_axis": {
+        "channel": "RPM",
+        "units": "rpm"
+      },
+      "z_value": {
+        "metric": "STFT1_pct + LTFT1_pct",
+        "aggregation": "mean"
+      },
+      "cell_ranges": {
+        "x_bins": [
+          20,
+          30,
+          40,
+          50,
+          60,
+          70,
+          80,
+          90,
+          100,
+          110
+        ],
+        "y_bins": [
+          600,
+          800,
+          1000,
+          1200,
+          1400,
+          1600,
+          1800,
+          2000,
+          2400,
+          2800,
+          3200,
+          3600,
+          4000,
+          4400,
+          4800,
+          5200,
+          5600,
+          6000,
+          6400
+        ]
+      },
+      "filters": [
+        "ECT_C > 75",
+        "EQ_Cmd <= 1.02",
+        "Throttle_Actual_pct < 35"
+      ],
+      "smoothing_guidance": "Prefer median in each cell if sample count is below 20.",
+      "required_channels": [
+        "MAP_kPa",
+        "RPM",
+        "STFT1_pct",
+        "LTFT1_pct",
+        "ECT_C",
+        "EQ_Cmd"
+      ],
+      "when_not_to_use": [
+        "Not valid for boosted MAP regions without 2-bar/3-bar model calibration context."
+      ]
+    },
+    {
+      "name": "gm_wot_lambda_error_rpm",
+      "purpose": "Compare commanded EQ/lambda against measured lambda at WOT.",
+      "x_axis": {
+        "channel": "RPM",
+        "units": "rpm"
+      },
+      "y_axis": {
+        "channel": "TransGear",
+        "units": "gear"
+      },
+      "z_value": {
+        "metric": "Lambda - (1 / EQ_Cmd)",
+        "aggregation": "mean"
+      },
+      "cell_ranges": {
+        "x_bins": [
+          2000,
+          2500,
+          3000,
+          3500,
+          4000,
+          4500,
+          5000,
+          5500,
+          6000,
+          6500,
+          7000
+        ],
+        "y_bins": [
+          "gear_by_log"
+        ]
+      },
+      "filters": [
+        "Throttle_Actual_pct > 88",
+        "APP_pct > 75",
+        "EQ_Cmd > 1.05"
+      ],
+      "smoothing_guidance": "No smoothing beyond light moving average; retain transient enrichment shape.",
+      "required_channels": [
+        "RPM",
+        "TransGear",
+        "Lambda",
+        "EQ_Cmd",
+        "Throttle_Actual_pct",
+        "APP_pct"
+      ],
+      "when_not_to_use": [
+        "Do not use if no wideband channel or if lambda sensor response is delayed/filtered heavily."
+      ]
+    },
+    {
+      "name": "gm_spark_kr_rpm_cylair",
+      "purpose": "Locate KR-prone zones under load.",
+      "x_axis": {
+        "channel": "MAP_kPa",
+        "units": "kPa"
+      },
+      "y_axis": {
+        "channel": "RPM",
+        "units": "rpm"
+      },
+      "z_value": {
+        "metric": "KR_deg",
+        "aggregation": "max"
+      },
+      "cell_ranges": {
+        "x_bins": [
+          60,
+          70,
+          80,
+          90,
+          100,
+          110,
+          120,
+          140,
+          160,
+          180,
+          200
+        ],
+        "y_bins": [
+          1200,
+          1600,
+          2000,
+          2400,
+          2800,
+          3200,
+          3600,
+          4000,
+          4400,
+          4800,
+          5200,
+          5600,
+          6000,
+          6400
+        ]
+      },
+      "filters": [
+        "Throttle_Actual_pct > 50"
+      ],
+      "smoothing_guidance": "No smoothing on max KR maps; review raw events.",
+      "required_channels": [
+        "MAP_kPa",
+        "RPM",
+        "KR_deg",
+        "Throttle_Actual_pct"
+      ],
+      "when_not_to_use": [
+        "Ignore if knock sensor diagnostics are disabled or engine is noisy/mechanical knock suspected."
+      ]
+    }
+  ]
+}

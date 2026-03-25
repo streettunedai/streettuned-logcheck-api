@@ -1,0 +1,52 @@
+{
+  "version": "1.0.0",
+  "normalization": {
+    "case_insensitive": true,
+    "trim_whitespace": true,
+    "collapse_internal_spaces": true,
+    "strip_bom": true
+  },
+  "sae_alias_handling": {
+    "strategy": "treat \"(SAE)\" suffix/prefix as equivalent",
+    "examples": [
+      {
+        "raw": "Engine Speed (SAE)",
+        "canonical": "RPM"
+      },
+      {
+        "raw": "Intake Manifold Absolute Pressure (SAE)",
+        "canonical": "MAP_kPa"
+      }
+    ]
+  },
+  "raw_to_canonical": {
+    "Engine Speed (SAE)": "RPM",
+    "Engine RPM": "RPM",
+    "RPM": "RPM",
+    "Vehicle Speed (SAE)": "VSS_mph",
+    "Vehicle Speed": "VSS_mph",
+    "MPH": "VSS_mph",
+    "Intake Manifold Absolute Pressure (SAE)": "MAP_kPa",
+    "MAP (SAE)": "MAP_kPa",
+    "MAP": "MAP_kPa",
+    "Boost/Vacuum": "Boost_kPa",
+    "Boost Pressure": "Boost_kPa",
+    "Fuel Rail Pressure": "FuelRailPressure_kPa",
+    "Rail Pressure": "FuelRailPressure_kPa",
+    "Desired Fuel Rail Pressure": "FuelRailPressureDesired_kPa",
+    "Fuel Rail Pressure (MPa)": "RailPressure_MPa",
+    "Fuel Rail Pressure Desired": "FuelRailPressureDesired_kPa",
+    "Throttle Position": "Throttle_Actual_pct",
+    "Desired Throttle Position": "Throttle_Desired_pct",
+    "Accelerator Pedal Position": "APP_pct",
+    "APP": "APP_pct",
+    "Commanded EQ Ratio": "EQ_Cmd",
+    "Equivalence Ratio Commanded (SAE)": "EQ_Cmd",
+    "Lambda 1": "Lambda",
+    "Wideband Lambda": "Lambda",
+    "Knock Retard": "KR_deg",
+    "Total Knock Retard": "KR_deg",
+    "Trans Gear": "TransGear",
+    "Current Gear": "TransGear"
+  }
+}

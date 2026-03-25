@@ -1,0 +1,477 @@
+{
+  "platform": "coyote_gen1",
+  "channel_groups": [
+    {
+      "canonical_name": "Time_sec",
+      "display_names": [
+        "Time (s)"
+      ],
+      "aliases": [
+        "Time",
+        "Elapsed Time"
+      ],
+      "units": "s",
+      "category": "core drivability",
+      "required_level": "required",
+      "source_type": "direct_pid",
+      "notes": "Primary time base.",
+      "applicable_platforms": [
+        "coyote_gen1"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "RPM",
+      "display_names": [
+        "Engine RPM"
+      ],
+      "aliases": [
+        "Engine Speed",
+        "Engine Speed (SAE)"
+      ],
+      "units": "rpm",
+      "category": "core drivability",
+      "required_level": "required",
+      "source_type": "direct_pid",
+      "notes": "Required for every Ford torque model histogram.",
+      "applicable_platforms": [
+        "coyote_gen1"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "VSS_mph",
+      "display_names": [
+        "Vehicle Speed"
+      ],
+      "aliases": [
+        "MPH",
+        "Vehicle Speed"
+      ],
+      "units": "mph",
+      "category": "core drivability",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Road-load segmentation.",
+      "applicable_platforms": [
+        "coyote_gen1"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "APP_pct",
+      "display_names": [
+        "Accelerator Pedal Position"
+      ],
+      "aliases": [
+        "APP",
+        "Pedal Position"
+      ],
+      "units": "%",
+      "category": "torque/throttle control",
+      "required_level": "required",
+      "source_type": "direct_pid",
+      "notes": "Driver demand axis.",
+      "applicable_platforms": [
+        "coyote_gen1"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "Throttle_Actual_pct",
+      "display_names": [
+        "Throttle Body Relative"
+      ],
+      "aliases": [
+        "Throttle Position",
+        "ETC Throttle"
+      ],
+      "units": "%",
+      "category": "torque/throttle control",
+      "required_level": "required",
+      "source_type": "direct_pid",
+      "notes": "Delivered throttle opening.",
+      "applicable_platforms": [
+        "coyote_gen1"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "Throttle_Desired_pct",
+      "display_names": [
+        "Desired Throttle"
+      ],
+      "aliases": [
+        "Throttle Desired"
+      ],
+      "units": "%",
+      "category": "torque/throttle control",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "ETC closure diagnosis.",
+      "applicable_platforms": [
+        "coyote_gen1"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "Torque_Actual_Nm",
+      "display_names": [
+        "Delivered Torque"
+      ],
+      "aliases": [
+        "Engine Torque",
+        "Delivered Engine Torque"
+      ],
+      "units": "Nm",
+      "category": "torque/throttle control",
+      "required_level": "recommended",
+      "source_type": "derived",
+      "notes": "Use factory delivered torque PID when available; else derived from load model.",
+      "applicable_platforms": [
+        "coyote_gen1"
+      ],
+      "dependencies": [
+        "RPM",
+        "Load"
+      ]
+    },
+    {
+      "canonical_name": "Torque_Desired_Nm",
+      "display_names": [
+        "Driver Demand Torque"
+      ],
+      "aliases": [
+        "Requested Torque"
+      ],
+      "units": "Nm",
+      "category": "torque/throttle control",
+      "required_level": "optional",
+      "source_type": "direct_pid",
+      "notes": "Helps map throttle closures.",
+      "applicable_platforms": [
+        "coyote_gen1"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "ECT_C",
+      "display_names": [
+        "Engine Coolant Temp"
+      ],
+      "aliases": [
+        "ECT",
+        "Coolant Temp"
+      ],
+      "units": "C",
+      "category": "idle/startup",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Warmup state validation.",
+      "applicable_platforms": [
+        "coyote_gen1"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "IAT_C",
+      "display_names": [
+        "Intake Air Temp"
+      ],
+      "aliases": [
+        "IAT",
+        "Charge Air Temp"
+      ],
+      "units": "C",
+      "category": "idle/startup",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "IAT spark adder context.",
+      "applicable_platforms": [
+        "coyote_gen1"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "MAF_Hz",
+      "display_names": [
+        "MAF Frequency"
+      ],
+      "aliases": [
+        "MAF Hz",
+        "MAF Airflow Frequency"
+      ],
+      "units": "Hz",
+      "category": "MAF tuning",
+      "required_level": "required",
+      "source_type": "direct_pid",
+      "notes": "Primary Ford MAF transfer axis.",
+      "applicable_platforms": [
+        "coyote_gen1"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "MAF_gps",
+      "display_names": [
+        "MAF Airflow"
+      ],
+      "aliases": [
+        "MAF",
+        "Mass Air Flow"
+      ],
+      "units": "g/s",
+      "category": "MAF tuning",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Cross-check against modeled airflow.",
+      "applicable_platforms": [
+        "coyote_gen1"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "STFT1_pct",
+      "display_names": [
+        "STFT Bank 1"
+      ],
+      "aliases": [
+        "Short Term FT B1"
+      ],
+      "units": "%",
+      "category": "fuel trims",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Closed-loop correction bank 1.",
+      "applicable_platforms": [
+        "coyote_gen1"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "LTFT1_pct",
+      "display_names": [
+        "LTFT Bank 1"
+      ],
+      "aliases": [
+        "Long Term FT B1"
+      ],
+      "units": "%",
+      "category": "fuel trims",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Learned correction bank 1.",
+      "applicable_platforms": [
+        "coyote_gen1"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "STFT2_pct",
+      "display_names": [
+        "STFT Bank 2"
+      ],
+      "aliases": [
+        "Short Term FT B2"
+      ],
+      "units": "%",
+      "category": "fuel trims",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Closed-loop correction bank 2.",
+      "applicable_platforms": [
+        "coyote_gen1"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "LTFT2_pct",
+      "display_names": [
+        "LTFT Bank 2"
+      ],
+      "aliases": [
+        "Long Term FT B2"
+      ],
+      "units": "%",
+      "category": "fuel trims",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Learned correction bank 2.",
+      "applicable_platforms": [
+        "coyote_gen1"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "Spark_deg",
+      "display_names": [
+        "Spark Advance"
+      ],
+      "aliases": [
+        "Timing Advance",
+        "Ignition Timing"
+      ],
+      "units": "deg",
+      "category": "spark/knock",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Delivered spark.",
+      "applicable_platforms": [
+        "coyote_gen1"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "KR_deg",
+      "display_names": [
+        "Knock Retard"
+      ],
+      "aliases": [
+        "Knock Retard",
+        "Knock Sensor Advance"
+      ],
+      "units": "deg",
+      "category": "spark/knock",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Use for borderline knock checks.",
+      "applicable_platforms": [
+        "coyote_gen1"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "Lambda",
+      "display_names": [
+        "Wideband Lambda"
+      ],
+      "aliases": [
+        "Lambda 1",
+        "Air Fuel Ratio Lambda"
+      ],
+      "units": "lambda",
+      "category": "fuel system",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Ford UEGO feedback channel.",
+      "applicable_platforms": [
+        "coyote_gen1"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "EQ_Cmd",
+      "display_names": [
+        "Commanded EQ Ratio"
+      ],
+      "aliases": [
+        "Commanded Lambda",
+        "Commanded EQ Ratio"
+      ],
+      "units": "ratio",
+      "category": "fuel system",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Commanded fueling under OL transitions.",
+      "applicable_platforms": [
+        "coyote_gen1"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "FuelPressureLow_kPa",
+      "display_names": [
+        "Low Side Fuel Pressure"
+      ],
+      "aliases": [
+        "Fuel Pump Pressure"
+      ],
+      "units": "kPa",
+      "category": "fuel system",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Important on boosted returnless setups.",
+      "applicable_platforms": [
+        "coyote_gen1"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "HPFP_Pressure_kPa",
+      "display_names": [
+        "High Pressure Fuel"
+      ],
+      "aliases": [
+        "DI Rail Pressure",
+        "High Pressure Fuel Rail"
+      ],
+      "units": "kPa",
+      "category": "fuel system",
+      "required_level": "optional",
+      "source_type": "direct_pid",
+      "notes": "Gen3 DI channel; Gen1/2 often unavailable.",
+      "applicable_platforms": [
+        "coyote_gen1"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "Boost_kPa",
+      "display_names": [
+        "Boost Pressure"
+      ],
+      "aliases": [
+        "Boost",
+        "MAP Boost"
+      ],
+      "units": "kPa",
+      "category": "boosted",
+      "required_level": "optional",
+      "source_type": "math",
+      "notes": "Only for FI applications; derive from MAP/baro if needed.",
+      "applicable_platforms": [
+        "coyote_gen1"
+      ],
+      "dependencies": [
+        "MAP_kPa"
+      ]
+    },
+    {
+      "canonical_name": "TransGear",
+      "display_names": [
+        "Current Gear"
+      ],
+      "aliases": [
+        "Gear",
+        "Trans Current Gear"
+      ],
+      "units": "gear",
+      "category": "transmission if applicable",
+      "required_level": "optional",
+      "source_type": "direct_pid",
+      "notes": "Useful on 6R80/10R80 logs.",
+      "applicable_platforms": [
+        "coyote_gen1"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "TCC_Slip_rpm",
+      "display_names": [
+        "TCC Slip Speed"
+      ],
+      "aliases": [
+        "Converter Slip"
+      ],
+      "units": "rpm",
+      "category": "transmission if applicable",
+      "required_level": "optional",
+      "source_type": "direct_pid",
+      "notes": "Auto trans lockup checks.",
+      "applicable_platforms": [
+        "coyote_gen1"
+      ],
+      "dependencies": []
+    }
+  ]
+}

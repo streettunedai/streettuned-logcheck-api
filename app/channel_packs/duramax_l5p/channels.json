@@ -1,0 +1,385 @@
+{
+  "platform": "duramax_l5p",
+  "channel_groups": [
+    {
+      "canonical_name": "Time_sec",
+      "display_names": [
+        "Time (s)"
+      ],
+      "aliases": [
+        "Time",
+        "Elapsed Time"
+      ],
+      "units": "s",
+      "category": "core drivability",
+      "required_level": "required",
+      "source_type": "direct_pid",
+      "notes": "Primary time base.",
+      "applicable_platforms": [
+        "duramax_l5p"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "RPM",
+      "display_names": [
+        "Engine RPM"
+      ],
+      "aliases": [
+        "Engine Speed",
+        "Engine Speed (SAE)"
+      ],
+      "units": "rpm",
+      "category": "core drivability",
+      "required_level": "required",
+      "source_type": "direct_pid",
+      "notes": "Diesel load reference.",
+      "applicable_platforms": [
+        "duramax_l5p"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "VSS_mph",
+      "display_names": [
+        "Vehicle Speed"
+      ],
+      "aliases": [
+        "Vehicle Speed",
+        "MPH"
+      ],
+      "units": "mph",
+      "category": "core drivability",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Separate towing/highway from stationary checks.",
+      "applicable_platforms": [
+        "duramax_l5p"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "APP_pct",
+      "display_names": [
+        "Accelerator Pedal Position"
+      ],
+      "aliases": [
+        "APP",
+        "APP %"
+      ],
+      "units": "%",
+      "category": "core drivability",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Driver request.",
+      "applicable_platforms": [
+        "duramax_l5p"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "RailPressure_MPa",
+      "display_names": [
+        "Fuel Rail Pressure"
+      ],
+      "aliases": [
+        "Fuel Rail Pressure (MPa)",
+        "Rail Pressure"
+      ],
+      "units": "MPa",
+      "category": "rail pressure/fuel system",
+      "required_level": "required",
+      "source_type": "direct_pid",
+      "notes": "Common logging unit on diesel definitions.",
+      "applicable_platforms": [
+        "duramax_l5p"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "RailPressureDesired_MPa",
+      "display_names": [
+        "Desired Fuel Rail Pressure"
+      ],
+      "aliases": [
+        "Fuel Rail Pressure Desired",
+        "Desired Rail Pressure"
+      ],
+      "units": "MPa",
+      "category": "rail pressure/fuel system",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Required for tracking error.",
+      "applicable_platforms": [
+        "duramax_l5p"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "MainPulse_us",
+      "display_names": [
+        "Main Injection Pulse"
+      ],
+      "aliases": [
+        "Main PW",
+        "Main Injection Duration"
+      ],
+      "units": "us",
+      "category": "rail pressure/fuel system",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Pulse width trend under load.",
+      "applicable_platforms": [
+        "duramax_l5p"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "SOI_deg",
+      "display_names": [
+        "Main Injection Timing"
+      ],
+      "aliases": [
+        "SOI",
+        "Injection Timing"
+      ],
+      "units": "deg",
+      "category": "rail pressure/fuel system",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Timing scheduling validation.",
+      "applicable_platforms": [
+        "duramax_l5p"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "Boost_kPa",
+      "display_names": [
+        "Boost Pressure"
+      ],
+      "aliases": [
+        "Boost",
+        "Boost Pressure"
+      ],
+      "units": "kPa",
+      "category": "boost/airflow/vane control",
+      "required_level": "recommended",
+      "source_type": "math",
+      "notes": "Derived from MAP if needed.",
+      "applicable_platforms": [
+        "duramax_l5p"
+      ],
+      "dependencies": [
+        "MAP_kPa"
+      ]
+    },
+    {
+      "canonical_name": "MAP_kPa",
+      "display_names": [
+        "Manifold Absolute Pressure"
+      ],
+      "aliases": [
+        "MAP",
+        "Intake Manifold Absolute Pressure"
+      ],
+      "units": "kPa",
+      "category": "boost/airflow/vane control",
+      "required_level": "required",
+      "source_type": "direct_pid",
+      "notes": "Load and smoke limiter context.",
+      "applicable_platforms": [
+        "duramax_l5p"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "MAF_gps",
+      "display_names": [
+        "MAF Airflow"
+      ],
+      "aliases": [
+        "MAF",
+        "Mass Air Flow"
+      ],
+      "units": "g/s",
+      "category": "boost/airflow/vane control",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Airflow sanity with vane and EGR changes.",
+      "applicable_platforms": [
+        "duramax_l5p"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "VanePos_pct",
+      "display_names": [
+        "Turbo Vane Position"
+      ],
+      "aliases": [
+        "VGT Position",
+        "Vane Position"
+      ],
+      "units": "%",
+      "category": "boost/airflow/vane control",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Availability varies by year/OS and scanner config; if absent mark uncertain.",
+      "applicable_platforms": [
+        "duramax_l5p"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "VaneCmd_pct",
+      "display_names": [
+        "Desired Vane Position"
+      ],
+      "aliases": [
+        "VGT Desired",
+        "Desired Vane Position"
+      ],
+      "units": "%",
+      "category": "boost/airflow/vane control",
+      "required_level": "optional",
+      "source_type": "direct_pid",
+      "notes": "Preferred when vane control tuning changes.",
+      "applicable_platforms": [
+        "duramax_l5p"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "ECT_C",
+      "display_names": [
+        "Engine Coolant Temp"
+      ],
+      "aliases": [
+        "ECT",
+        "Coolant Temp"
+      ],
+      "units": "C",
+      "category": "towing",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Heat rejection during tow/load climbs.",
+      "applicable_platforms": [
+        "duramax_l5p"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "IAT_C",
+      "display_names": [
+        "Intake Air Temp"
+      ],
+      "aliases": [
+        "IAT"
+      ],
+      "units": "C",
+      "category": "towing",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Charge temp climb under sustained load.",
+      "applicable_platforms": [
+        "duramax_l5p"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "TransGear",
+      "display_names": [
+        "Current Gear"
+      ],
+      "aliases": [
+        "Trans Gear",
+        "Gear"
+      ],
+      "units": "gear",
+      "category": "transmission if applicable",
+      "required_level": "recommended",
+      "source_type": "direct_pid",
+      "notes": "Tow shift behavior and lockup context.",
+      "applicable_platforms": [
+        "duramax_l5p"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "TCC_Slip_rpm",
+      "display_names": [
+        "TCC Slip Speed"
+      ],
+      "aliases": [
+        "Converter Slip",
+        "TCC Slip"
+      ],
+      "units": "rpm",
+      "category": "transmission if applicable",
+      "required_level": "optional",
+      "source_type": "direct_pid",
+      "notes": "Detect lockup instability.",
+      "applicable_platforms": [
+        "duramax_l5p"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "LinePressure_kPa",
+      "display_names": [
+        "Trans Line Pressure"
+      ],
+      "aliases": [
+        "Line Pressure"
+      ],
+      "units": "kPa",
+      "category": "transmission if applicable",
+      "required_level": "optional",
+      "source_type": "direct_pid",
+      "notes": "Supported on many Allison definitions.",
+      "applicable_platforms": [
+        "duramax_l5p"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "RegenState",
+      "display_names": [
+        "DPF Regen Status"
+      ],
+      "aliases": [
+        "Regeneration Status",
+        "Regen Active"
+      ],
+      "units": "state",
+      "category": "emissions/regen where applicable",
+      "required_level": "recommended",
+      "source_type": "scanner_only",
+      "notes": "State encoding varies by OS; treat non-binary values carefully.",
+      "applicable_platforms": [
+        "duramax_l5p"
+      ],
+      "dependencies": []
+    },
+    {
+      "canonical_name": "DPF_SootLoad_pct",
+      "display_names": [
+        "DPF Soot Load"
+      ],
+      "aliases": [
+        "Soot Mass",
+        "DPF Soot Load"
+      ],
+      "units": "%",
+      "category": "emissions/regen where applicable",
+      "required_level": "optional",
+      "source_type": "direct_pid",
+      "notes": "Use trend, not single-sample absolute.",
+      "applicable_platforms": [
+        "duramax_l5p"
+      ],
+      "dependencies": []
+    }
+  ]
+}

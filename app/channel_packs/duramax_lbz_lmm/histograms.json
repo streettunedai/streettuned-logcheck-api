@@ -1,0 +1,173 @@
+{
+  "platform": "duramax_lbz_lmm",
+  "histograms": [
+    {
+      "name": "duramax_rail_tracking_rpm",
+      "purpose": "Track desired vs actual rail pressure.",
+      "x_axis": {
+        "channel": "RPM",
+        "units": "rpm"
+      },
+      "y_axis": {
+        "channel": "APP_pct",
+        "units": "%"
+      },
+      "z_value": {
+        "metric": "RailPressureDesired_MPa - RailPressure_MPa",
+        "aggregation": "mean"
+      },
+      "cell_ranges": {
+        "x_bins": [
+          600,
+          800,
+          1000,
+          1200,
+          1400,
+          1600,
+          1800,
+          2000,
+          2400,
+          2800,
+          3200,
+          3600,
+          4000
+        ],
+        "y_bins": [
+          0,
+          10,
+          20,
+          30,
+          40,
+          50,
+          60,
+          70,
+          80,
+          90,
+          100
+        ]
+      },
+      "filters": [
+        "ECT_C > 70"
+      ],
+      "smoothing_guidance": "Apply low smoothing (0.15) to avoid hiding pressure dips on shifts.",
+      "required_channels": [
+        "RPM",
+        "APP_pct",
+        "RailPressureDesired_MPa",
+        "RailPressure_MPa",
+        "ECT_C"
+      ],
+      "when_not_to_use": [
+        "Not valid when commanded pressure limiter diagnostics are active/faulted."
+      ]
+    },
+    {
+      "name": "duramax_boost_control_error",
+      "purpose": "Evaluate vane and boost control accuracy.",
+      "x_axis": {
+        "channel": "RPM",
+        "units": "rpm"
+      },
+      "y_axis": {
+        "channel": "Fueling_mm3",
+        "units": "mm3 (if available, else APP_pct)"
+      },
+      "z_value": {
+        "metric": "Boost_kPa - MAP_kPa",
+        "aggregation": "mean"
+      },
+      "cell_ranges": {
+        "x_bins": [
+          1000,
+          1400,
+          1800,
+          2200,
+          2600,
+          3000,
+          3400,
+          3800,
+          4200
+        ],
+        "y_bins": [
+          10,
+          20,
+          30,
+          40,
+          50,
+          60,
+          70,
+          80,
+          90,
+          100
+        ]
+      },
+      "filters": [
+        "APP_pct > 20"
+      ],
+      "smoothing_guidance": "Use rolling median window 5 samples to reduce vane quantization noise.",
+      "required_channels": [
+        "RPM",
+        "APP_pct",
+        "Boost_kPa",
+        "MAP_kPa"
+      ],
+      "when_not_to_use": [
+        "Skip if boost channel is inferred from MAP (metric becomes non-informative)."
+      ]
+    },
+    {
+      "name": "duramax_towing_egt_proxy",
+      "purpose": "Tow-load stress map using airflow and fuel pulse proxy.",
+      "x_axis": {
+        "channel": "VSS_mph",
+        "units": "mph"
+      },
+      "y_axis": {
+        "channel": "APP_pct",
+        "units": "%"
+      },
+      "z_value": {
+        "metric": "MainPulse_us",
+        "aggregation": "p90"
+      },
+      "cell_ranges": {
+        "x_bins": [
+          20,
+          30,
+          40,
+          50,
+          60,
+          70,
+          80
+        ],
+        "y_bins": [
+          10,
+          20,
+          30,
+          40,
+          50,
+          60,
+          70,
+          80,
+          90,
+          100
+        ]
+      },
+      "filters": [
+        "TransGear >= 4",
+        "ECT_C > 75"
+      ],
+      "smoothing_guidance": "No smoothing required for p90 strategy.",
+      "required_channels": [
+        "VSS_mph",
+        "APP_pct",
+        "MainPulse_us",
+        "TransGear",
+        "ECT_C"
+      ],
+      "when_not_to_use": [
+        "Not a direct EGT replacement; avoid using for pyrometer-target calibration."
+      ]
+    }
+  ]
+}
