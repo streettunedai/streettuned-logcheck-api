@@ -80,6 +80,29 @@
       "MAF_Hz",
       "Throttle_Actual_pct",
       "HPFP_Pressure_kPa"
+    ],
+    "cummins_12v_ve": [
+      "engine_rpm",
+      "egt",
+      "boost_psi_or_map_kpa"
+    ],
+    "cummins_12v_ppump": [
+      "engine_rpm",
+      "egt",
+      "boost_psi_or_map_kpa"
+    ],
+    "cummins_24v_vp44": [
+      "engine_rpm",
+      "egt",
+      "boost_psi_or_map_kpa",
+      "fuel_pressure"
+    ],
+    "cummins_5_9_common_rail": [
+      "engine_rpm",
+      "egt",
+      "boost_psi_or_map_kpa",
+      "rail_pressure_commanded",
+      "rail_pressure_actual"
     ]
   },
   "fallback_logic": [

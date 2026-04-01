@@ -131,6 +131,58 @@
         "gpf_not_common_usdm"
       ],
       "forced_induction_possible": true
+    },
+    {
+      "platform": "cummins_12v_ve",
+      "engine_family": "Cummins 12V VE",
+      "fuel_system": "mechanical diesel",
+      "transmission_support": [
+        "47RH",
+        "NV4500"
+      ],
+      "emissions_features": [
+        "none_required"
+      ],
+      "forced_induction_possible": true
+    },
+    {
+      "platform": "cummins_12v_ppump",
+      "engine_family": "Cummins 12V P-pump",
+      "fuel_system": "mechanical diesel",
+      "transmission_support": [
+        "47RH",
+        "NV4500"
+      ],
+      "emissions_features": [
+        "none_required"
+      ],
+      "forced_induction_possible": true
+    },
+    {
+      "platform": "cummins_24v_vp44",
+      "engine_family": "Cummins 24V VP44",
+      "fuel_system": "electronically-controlled distributor pump",
+      "transmission_support": [
+        "47RE",
+        "NV5600"
+      ],
+      "emissions_features": [
+        "minimal_pre_emissions"
+      ],
+      "forced_induction_possible": true
+    },
+    {
+      "platform": "cummins_5_9_common_rail",
+      "engine_family": "Cummins 5.9 Common Rail",
+      "fuel_system": "common rail diesel",
+      "transmission_support": [
+        "48RE",
+        "G56"
+      ],
+      "emissions_features": [
+        "minimal_pre_dpf"
+      ],
+      "forced_induction_possible": true
     }
   ]
 }
