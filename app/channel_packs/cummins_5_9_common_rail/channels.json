@@ -1,0 +1,19 @@
+{
+  "required": [
+    "engine_rpm",
+    "egt",
+    "boost_psi_or_map_kpa",
+    "rail_pressure_commanded",
+    "rail_pressure_actual"
+  ],
+  "recommended": [
+    "vehicle_speed",
+    "intake_air_temp",
+    "coolant_temp",
+    "throttle_position_or_apps",
+    "fuel_pressure",
+    "injection_quantity_or_pulse_width",
+    "gear",
+    "converter_slip_or_lockup"
+  ]
+}
