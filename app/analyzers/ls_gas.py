@@ -35,12 +35,15 @@ CANONICAL_ALIASES: Dict[str, List[str]] = {
     "Spark_deg": [
         "Timing Advance (SAE)",
         "Spark Advance",
+        "Timing Advance",
+        "Ignition Advance",
         "Spark",
         "Timing",
         "Ignition Timing",
     ],
     "KR_deg": [
         "Knock Retard",
+        "Spark Retard",
         "KR",
     ],
     "TotalKR_deg": [
@@ -51,6 +54,8 @@ CANONICAL_ALIASES: Dict[str, List[str]] = {
     "EQ_Cmd": [
         "Equivalence Ratio Commanded (SAE)",
         "Commanded EQ Ratio",
+        "Commanded Lambda",
+        "Lambda Commanded",
         "EQ Ratio Commanded",
         "EQ Cmd",
     ],
@@ -67,6 +72,7 @@ CANONICAL_ALIASES: Dict[str, List[str]] = {
     "TPS_pct": [
         "Absolute Throttle Position",
         "Throttle Position",
+        "Throttle Angle",
         "TPS",
         "TPS %",
         "Throttle Position (%)",
@@ -198,6 +204,27 @@ CANONICAL_ALIASES: Dict[str, List[str]] = {
         "Gear",
         "Trans Gear",
         "Current Gear",
+    ],
+    "InputSpeed_rpm": [
+        "Input Speed",
+        "Transmission Input Speed",
+    ],
+    "OutputSpeed_rpm": [
+        "Output Speed",
+        "Transmission Output Speed",
+    ],
+    "Slip_rpm": [
+        "Slip",
+        "TCC Slip",
+        "Converter Slip",
+    ],
+    "DesiredTorque": [
+        "Desired Torque",
+        "Driver Desired Torque",
+    ],
+    "ActualTorque": [
+        "Actual Torque",
+        "Delivered Torque",
     ],
     "InjectorPW_ms": [
         "Injector Pulse Width",
@@ -539,7 +566,7 @@ def avg_bank_trims(num: pd.DataFrame) -> Optional[pd.Series]:
     return stacked.mean(axis=1, skipna=True)
 
 
-def analyze_dataframe(df: pd.DataFrame, meta: Dict[str, Any]) -> Dict[str, Any]:
+def analyze_dataframe(df: pd.DataFrame, meta: Dict[str, Any], platform_hint: Optional[str] = None) -> Dict[str, Any]:
     matched_raw_columns, trust_buckets = map_columns(df)
     num, invalid_reasons, pressure_unit_modes = build_numeric_frame(df, matched_raw_columns)
 
@@ -554,6 +581,8 @@ def analyze_dataframe(df: pd.DataFrame, meta: Dict[str, Any]) -> Dict[str, Any]:
     suspect: List[str] = []
 
     operating_mode = determine_operating_mode(num)
+    analysis_scope = build_analysis_scope(matched_raw_columns, operating_mode)
+    platform_details = detect_platform_guess(list(df.columns), platform_hint=platform_hint)
     kr_events = extract_kr_events(num)
     throttle_diag = compute_throttle_diagnostics(num)
     map_boost_conflict = compute_map_boost_conflict(num)
@@ -646,12 +675,38 @@ def analyze_dataframe(df: pd.DataFrame, meta: Dict[str, Any]) -> Dict[str, Any]:
         "kr_events": kr_events,
         "fueling_guidance": fueling_guidance,
         "notes": notes,
+        "platform_guess": platform_details["platform_guess"],
+        "platform_detection": platform_details,
+        "analysis_scope": analysis_scope,
+        "readable_data": {
+            "confirmed": sorted(trust_buckets.get("confirmed_channels", [])),
+            "missing_or_unreliable": sorted(
+                set(trust_buckets.get("missing_channels", []))
+                | set(trust_buckets.get("invalid_channels", []))
+                | set(trust_buckets.get("uncertain_channels", []))
+            ),
+        },
+        "conclusion_safety": {
+            "safe_conclusions": [
+                "Idle behavior can be reviewed safely." if analysis_scope["idle_review"] else None,
+                "Cruise/load trend review is supported." if analysis_scope["cruise_review"] else None,
+                "Knock trend review is supported." if analysis_scope["knock_review"] else None,
+            ],
+            "unsupported_conclusions": [
+                "Numeric WOT fueling changes are not supported by this log." if not analysis_scope["wot_fueling_review"] else None,
+                "Transmission correction conclusions are limited." if not analysis_scope["transmission_review"] else None,
+            ],
+        },
     }
+    result["conclusion_safety"]["safe_conclusions"] = [x for x in result["conclusion_safety"]["safe_conclusions"] if x]
+    result["conclusion_safety"]["unsupported_conclusions"] = [x for x in result["conclusion_safety"]["unsupported_conclusions"] if x]
 
     return result
 
 
-def validate_dataframe(df: pd.DataFrame, filename: str, mime_type: Optional[str], meta: Dict[str, Any]) -> Dict[str, Any]:
+def validate_dataframe(
+    df: pd.DataFrame, filename: str, mime_type: Optional[str], meta: Dict[str, Any], platform_hint: Optional[str] = None
+) -> Dict[str, Any]:
     matched_raw_columns, trust_buckets = map_columns(df)
     num, invalid_reasons, pressure_unit_modes = build_numeric_frame(df, matched_raw_columns)
 
@@ -662,6 +717,9 @@ def validate_dataframe(df: pd.DataFrame, filename: str, mime_type: Optional[str]
         elif key in num and num[key].dropna().size < 5:
             hard_stop_reasons.append(f"insufficient_{key}")
 
+    operating_mode = determine_operating_mode(num)
+    analysis_scope = build_analysis_scope(matched_raw_columns, operating_mode)
+    platform_details = detect_platform_guess(list(df.columns), platform_hint=platform_hint)
     trust_buckets = finalize_trust_buckets(trust_buckets, invalid_reasons, [], [])
 
     return {
@@ -679,4 +737,47 @@ def validate_dataframe(df: pd.DataFrame, filename: str, mime_type: Optional[str]
         "trust_buckets": trust_buckets,
         "invalid_channel_reasons": invalid_reasons,
         "hard_stop_reasons": hard_stop_reasons,
+        "platform_guess": platform_details["platform_guess"],
+        "platform_detection": platform_details,
+        "analysis_scope": analysis_scope,
+        "capability_flags": analysis_scope,
+    }
+MOPAR_PLATFORM_MARKERS = {
+    "Engine RPM",
+    "Engine Speed",
+    "Throttle Angle",
+    "Ignition Advance",
+    "Spark Retard",
+    "Commanded Lambda",
+    "Driver Desired Torque",
+    "Current Gear",
+}
+
+
+def detect_platform_guess(columns: List[str], platform_hint: Optional[str] = None) -> Dict[str, Any]:
+    normalized = {str(c).strip().lower() for c in columns}
+    marker_hits = [m for m in MOPAR_PLATFORM_MARKERS if m.lower() in normalized]
+    score = len(marker_hits)
+    hint = (platform_hint or "").strip().lower()
+    if hint == "mopar":
+        score += 1
+    guess = "mopar" if score >= 3 else None
+    return {"platform_guess": guess, "mopar_score": score, "mopar_hits": marker_hits}
+
+
+def build_analysis_scope(matched: Dict[str, str], operating_mode: Dict[str, Any]) -> Dict[str, bool]:
+    has_rpm = "RPM" in matched
+    has_map = "MAP_kPa" in matched
+    has_tps = "TPS_pct" in matched or "Pedal_pct" in matched
+    has_gear = "Gear" in matched or "InputSpeed_rpm" in matched or "OutputSpeed_rpm" in matched
+    has_kr = "KR_deg" in matched or "TotalKR_deg" in matched
+    has_wot_fuel = ("EQ_Cmd" in matched) and ("WB_AFR" in matched or "WB_Lambda" in matched)
+    return {
+        "basic_engine_review": has_rpm and has_map,
+        "idle_review": has_rpm and has_tps and bool(operating_mode.get("idle_detected")),
+        "cruise_review": has_rpm and has_tps,
+        "shift_review": has_gear and has_tps,
+        "knock_review": has_kr and has_rpm and has_map,
+        "wot_fueling_review": has_wot_fuel and bool(operating_mode.get("wot_detected")),
+        "transmission_review": has_gear,
     }
