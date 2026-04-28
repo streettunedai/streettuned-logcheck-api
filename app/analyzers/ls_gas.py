@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from app.core.parser import calc_log_duration, choose_best_column, safe_float, series_numeric
+from app.core.parser import calc_log_duration, choose_best_column, safe_float, series_numeric, clean_column_name
 from app.core.trust import finalize_trust_buckets
 
 
@@ -247,10 +247,32 @@ WOT_TPS_THRESHOLD = 75.0
 IDLE_RPM_MAX = 1100.0
 IDLE_TPS_MAX = 5.0
 IDLE_SPEED_MAX = 3.0
+MIN_CONFIRMED_SAMPLES = 25
+MIN_LIKELY_SAMPLES = 8
 
 
-def map_columns(df: pd.DataFrame) -> Tuple[Dict[str, str], Dict[str, List[str]]]:
+def find_alias_candidates(columns: List[str], aliases: List[str]) -> List[str]:
+    normalized_aliases = [clean_column_name(a).lower() for a in aliases]
+    normalized_cols = [(col, clean_column_name(col).lower()) for col in columns]
+    candidates: List[str] = []
+    for raw_col, normalized_col in normalized_cols:
+        for alias in normalized_aliases:
+            if (
+                normalized_col == alias
+                or normalized_col.startswith(f"{alias} ")
+                or normalized_col.endswith(f" {alias}")
+                or alias.startswith(f"{normalized_col} ")
+                or alias.endswith(f" {normalized_col}")
+            ):
+                candidates.append(raw_col)
+                break
+    return candidates
+
+
+def map_columns(df: pd.DataFrame) -> Tuple[Dict[str, str], Dict[str, List[str]], Dict[str, Any]]:
     matched_raw_columns: Dict[str, str] = {}
+    mapping_diagnostics: Dict[str, Any] = {}
+    columns = list(df.columns)
     trust_buckets = {
         "confirmed_channels": [],
         "suspect_channels": [],
@@ -260,14 +282,32 @@ def map_columns(df: pd.DataFrame) -> Tuple[Dict[str, str], Dict[str, List[str]]]
     }
 
     for canonical, aliases in CANONICAL_ALIASES.items():
-        match = choose_best_column(list(df.columns), aliases)
+        match = choose_best_column(columns, aliases)
+        candidates = find_alias_candidates(columns, aliases)
         if match:
             matched_raw_columns[canonical] = match
-            trust_buckets["confirmed_channels"].append(canonical)
+            if len(candidates) > 1 or len(candidates) == 0:
+                trust_buckets["uncertain_channels"].append(canonical)
+            else:
+                trust_buckets["confirmed_channels"].append(canonical)
+            mapping_diagnostics[canonical] = {
+                "selected_column": match,
+                "candidate_count": len(candidates),
+                "candidates": candidates[:6],
+                "ambiguous": len(candidates) > 1,
+                "match_strength": "weak" if len(candidates) == 0 else ("ambiguous" if len(candidates) > 1 else "direct"),
+            }
         else:
             trust_buckets["missing_channels"].append(canonical)
+            mapping_diagnostics[canonical] = {
+                "selected_column": None,
+                "candidate_count": 0,
+                "candidates": [],
+                "ambiguous": False,
+                "match_strength": "none",
+            }
 
-    return matched_raw_columns, trust_buckets
+    return matched_raw_columns, trust_buckets, mapping_diagnostics
 
 
 def forward_fill_sparse(series: pd.Series, max_gap: int = 8) -> pd.Series:
@@ -529,6 +569,109 @@ def compute_throttle_diagnostics(num: pd.DataFrame) -> Dict[str, Any]:
     return out
 
 
+def infer_pe_status(num: pd.DataFrame, matched: Dict[str, str], raw_df: pd.DataFrame) -> bool:
+    if "EQ_Cmd" in num and num["EQ_Cmd"].dropna().size:
+        if float(num["EQ_Cmd"].dropna().max()) >= 1.03:
+            return True
+    if "AFR_Cmd" in num and num["AFR_Cmd"].dropna().size:
+        if float(num["AFR_Cmd"].dropna().min()) <= 13.6:
+            return True
+    status_col = matched.get("FuelSys1_Status")
+    if status_col and status_col in raw_df.columns:
+        status_text = raw_df[status_col].astype(str).str.lower()
+        if status_text.str.contains("pe|power", regex=True).any():
+            return True
+    return False
+
+
+def infer_segments(num: pd.DataFrame, operating_mode: Dict[str, Any], matched: Dict[str, str], raw_df: pd.DataFrame) -> List[str]:
+    segments: List[str] = []
+    rpm = num["RPM"] if "RPM" in num else pd.Series(dtype=float)
+    tps = num["TPS_pct"] if "TPS_pct" in num else pd.Series(dtype=float)
+    ect = num["ECT_C"] if "ECT_C" in num else pd.Series(dtype=float)
+    vss = num["VSS_mph"] if "VSS_mph" in num else pd.Series(dtype=float)
+
+    if rpm.dropna().size == 0:
+        return ["KOEO"]
+
+    rpm_max = float(rpm.dropna().max())
+    if rpm_max > 600:
+        segments.append("running")
+    crank_mask = ((rpm >= 80) & (rpm <= 500)).fillna(False)
+    crank_ratio = float(crank_mask.mean()) if len(crank_mask) else 0.0
+    if crank_mask.any() and crank_ratio <= 0.15 and rpm_max < 1200:
+        segments.append("crank")
+    if operating_mode.get("idle_detected"):
+        if ect.dropna().size and float(ect.dropna().max()) < 65:
+            segments.append("cold idle")
+        else:
+            segments.append("warm idle")
+    if tps.dropna().size:
+        if ((tps >= 12) & (tps < WOT_TPS_THRESHOLD)).fillna(False).any():
+            segments.append("part throttle")
+        if (tps >= WOT_TPS_THRESHOLD).fillna(False).any():
+            if infer_pe_status(num, matched, raw_df):
+                segments.append("WOT / PE")
+            else:
+                segments.append("WOT")
+    if vss.dropna().size and ((vss > 20) & (tps <= 20)).fillna(False).any():
+        segments.append("cruise")
+
+    deduped = []
+    for item in segments:
+        if item not in deduped:
+            deduped.append(item)
+    return deduped
+
+
+def build_channel_confidence(
+    matched: Dict[str, str],
+    num: pd.DataFrame,
+    mapping_diagnostics: Dict[str, Any],
+    invalid_reasons: Dict[str, str],
+    uncertain: List[str],
+    suspect: List[str],
+) -> Dict[str, List[str]]:
+    confirmed: List[str] = []
+    likely: List[str] = []
+    suspect_out = sorted(set(suspect))
+    missing: List[str] = []
+
+    for canonical in CANONICAL_ALIASES.keys():
+        if canonical not in matched:
+            missing.append(canonical)
+            continue
+        if canonical in invalid_reasons:
+            suspect_out.append(canonical)
+            continue
+
+        sample_count = int(num[canonical].dropna().size) if canonical in num else 0
+        coverage = (sample_count / max(len(num), 1)) if len(num) else 0.0
+        ambiguous = bool(mapping_diagnostics.get(canonical, {}).get("ambiguous", False))
+        is_uncertain = canonical in uncertain
+
+        if ambiguous:
+            suspect_out.append(canonical)
+            continue
+        if sample_count < 3 or coverage < 0.02:
+            missing.append(canonical)
+        elif sample_count < MIN_LIKELY_SAMPLES:
+            likely.append(canonical)
+        elif is_uncertain:
+            suspect_out.append(canonical)
+        elif sample_count < MIN_CONFIRMED_SAMPLES:
+            likely.append(canonical)
+        else:
+            confirmed.append(canonical)
+
+    return {
+        "confirmed": sorted(set(confirmed)),
+        "likely": sorted(set(likely)),
+        "suspect": sorted(set(suspect_out)),
+        "missing": sorted(set(missing)),
+    }
+
+
 def compute_map_boost_conflict(num: pd.DataFrame) -> Dict[str, Any]:
     result = {"conflict": False, "notes": []}
 
@@ -567,7 +710,7 @@ def avg_bank_trims(num: pd.DataFrame) -> Optional[pd.Series]:
 
 
 def analyze_dataframe(df: pd.DataFrame, meta: Dict[str, Any], platform_hint: Optional[str] = None) -> Dict[str, Any]:
-    matched_raw_columns, trust_buckets = map_columns(df)
+    matched_raw_columns, trust_buckets, mapping_diagnostics = map_columns(df)
     num, invalid_reasons, pressure_unit_modes = build_numeric_frame(df, matched_raw_columns)
 
     hard_stop_reasons: List[str] = []
@@ -589,6 +732,7 @@ def analyze_dataframe(df: pd.DataFrame, meta: Dict[str, Any], platform_hint: Opt
 
     if map_boost_conflict["conflict"]:
         uncertain.extend(["MAP_kPa", "Boost_kPa"])
+        suspect.extend(["MAP_kPa", "Boost_kPa"])
 
     wideband_trusted, wideband_reason, wb_uncertain, wb_diag, wb_lambda = compute_wideband_trust(num)
     uncertain.extend(wb_uncertain)
@@ -603,6 +747,7 @@ def analyze_dataframe(df: pd.DataFrame, meta: Dict[str, Any], platform_hint: Opt
         eq = num["EQ_Cmd"].dropna()
         if float(eq.max()) < 0.8 or float(eq.max()) > 1.8:
             uncertain.append("EQ_Cmd")
+            suspect.append("EQ_Cmd")
 
     trim_series = avg_bank_trims(num)
     trim_summary = None
@@ -640,6 +785,10 @@ def analyze_dataframe(df: pd.DataFrame, meta: Dict[str, Any], platform_hint: Opt
         notes.append("WOT fueling corrections should be limited because actual wideband trust is not confirmed.")
 
     trust_buckets = finalize_trust_buckets(trust_buckets, invalid_reasons, uncertain, suspect)
+    channel_confidence = build_channel_confidence(
+        matched_raw_columns, num, mapping_diagnostics, invalid_reasons, uncertain, suspect
+    )
+    segments_found = infer_segments(num, operating_mode, matched_raw_columns, df)
 
     summary = {
         "external_wideband_trusted": bool(wideband_trusted),
@@ -678,6 +827,20 @@ def analyze_dataframe(df: pd.DataFrame, meta: Dict[str, Any], platform_hint: Opt
         "platform_guess": platform_details["platform_guess"],
         "platform_detection": platform_details,
         "analysis_scope": analysis_scope,
+        "segments_found": segments_found,
+        "channel_confidence": channel_confidence,
+        "mapping_diagnostics": mapping_diagnostics,
+        "normalization_rules": {
+            "EQ Commanded / commanded lambda / commanded AFR": "commanded fueling",
+            "Wideband AFR / wideband lambda": "Wideband",
+            "KR": "Knock Retard",
+            "Spark Advance": "Spark",
+            "Injector Pulse Width": "Inj PW",
+            "IAT": "IAT",
+            "ECT": "ECT",
+            "Vehicle Speed": "Speed",
+            "Fuel System / CL / OL / PE status": "fuel status",
+        },
         "readable_data": {
             "confirmed": sorted(trust_buckets.get("confirmed_channels", [])),
             "missing_or_unreliable": sorted(
@@ -707,7 +870,7 @@ def analyze_dataframe(df: pd.DataFrame, meta: Dict[str, Any], platform_hint: Opt
 def validate_dataframe(
     df: pd.DataFrame, filename: str, mime_type: Optional[str], meta: Dict[str, Any], platform_hint: Optional[str] = None
 ) -> Dict[str, Any]:
-    matched_raw_columns, trust_buckets = map_columns(df)
+    matched_raw_columns, trust_buckets, mapping_diagnostics = map_columns(df)
     num, invalid_reasons, pressure_unit_modes = build_numeric_frame(df, matched_raw_columns)
 
     hard_stop_reasons: List[str] = []
@@ -719,8 +882,10 @@ def validate_dataframe(
 
     operating_mode = determine_operating_mode(num)
     analysis_scope = build_analysis_scope(matched_raw_columns, operating_mode)
+    segments_found = infer_segments(num, operating_mode, matched_raw_columns, df)
     platform_details = detect_platform_guess(list(df.columns), platform_hint=platform_hint)
     trust_buckets = finalize_trust_buckets(trust_buckets, invalid_reasons, [], [])
+    channel_confidence = build_channel_confidence(matched_raw_columns, num, mapping_diagnostics, invalid_reasons, [], [])
 
     return {
         "status": "ready" if not hard_stop_reasons else "limited",
@@ -740,6 +905,9 @@ def validate_dataframe(
         "platform_guess": platform_details["platform_guess"],
         "platform_detection": platform_details,
         "analysis_scope": analysis_scope,
+        "segments_found": segments_found,
+        "channel_confidence": channel_confidence,
+        "mapping_diagnostics": mapping_diagnostics,
         "capability_flags": analysis_scope,
     }
 MOPAR_PLATFORM_MARKERS = {
