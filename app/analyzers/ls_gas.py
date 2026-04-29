@@ -157,6 +157,7 @@ CANONICAL_ALIASES: Dict[str, List[str]] = {
     "WB_AFR": [
         "AEM Air/Fuel Ratio",
         "AEM AFR",
+        "MPVI2.1 -> AEM 30-(03x0,2340,5130)",
         "Wideband AFR",
         "AFR",
         "Lambda 1",
