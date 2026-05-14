@@ -8,6 +8,58 @@ import pandas as pd
 from app.core.parser import calc_log_duration, choose_best_column, safe_float, series_numeric
 from app.core.trust import finalize_trust_buckets
 
+CHANNEL_CONFIDENCE = {"CONFIRMED", "LIKELY", "SUSPECT", "MISSING"}
+
+MAF_EXACT_ALIASES = {
+    "maf hz", "maf frequency", "maf sensor frequency", "mass airflow sensor",
+    "mass air flow sensor", "mass airflow", "mass air flow", "maf",
+}
+MAF_REJECT_TOKENS = {
+    "dynamic airflow", "cylinder airmass", "volumetric efficiency airflow", "ve airflow",
+    "air mass", "delivered airflow", "airflow estimate",
+}
+WIDEBAND_STRONG_ALIASES = {
+    "wideband", "wideband afr", "wideband lambda", "wb afr", "wb lambda", "afr wideband",
+    "lambda wideband", "air fuel ratio", "afr through eio", "lambda through eio",
+}
+WIDEBAND_BRAND_ALIASES = {"innovate", "aem", "plx", "ngk", "lc 1", "lm 1"}
+WIDEBAND_ANALOG_ALIASES = {"mpvi pro input", "pro link input", "analog 1", "analog 2", "eio input 1", "eio input 2"}
+WIDEBAND_REJECT_TOKENS = {
+    "o2 b1", "o2 b2", "narrowband o2", "short term fuel trim", "long term fuel trim",
+    "commanded afr", "commanded lambda", "eq ratio", "commanded eq ratio", "desired afr",
+    "fuel target", "catalyst o2", "desired", "target", " error ",
+}
+
+
+def canonicalize_channel_name(name: str) -> str:
+    return " ".join("".join(ch.lower() if ch.isalnum() else " " for ch in str(name)).split())
+
+
+def classify_unit(text: str) -> str:
+    t = canonicalize_channel_name(text)
+    if "hz" in t or "hertz" in t:
+        return "hz"
+    if "lambda" in t:
+        return "lambda"
+    if "afr" in t or "air fuel ratio" in t or t == "ratio":
+        return "afr"
+    if t in {"v", "volt", "volts", "voltage"} or " volt" in f" {t}":
+        return "volts"
+    if "g s" in t or "gps" in t:
+        return "g/s"
+    if "lb min" in t:
+        return "lb/min"
+    if "lb hr" in t or "lb h" in t:
+        return "lb/hr"
+    return "unknown"
+
+
+def _is_dynamic(series: pd.Series) -> bool:
+    finite = series.dropna()
+    if finite.size < 8:
+        return False
+    return bool(float(finite.std()) > 1e-6 and float(finite.diff().abs().median()) > 0)
+
 
 CANONICAL_ALIASES: Dict[str, List[str]] = {
     "Time_sec": [
@@ -261,6 +313,8 @@ def map_columns(df: pd.DataFrame) -> Tuple[Dict[str, str], Dict[str, List[str]]]
     }
 
     for canonical, aliases in CANONICAL_ALIASES.items():
+        if canonical in {"MAF_Hz", "WB_AFR", "WB_Lambda"}:
+            continue
         match = choose_best_column(list(df.columns), aliases)
         if match:
             matched_raw_columns[canonical] = match
@@ -268,7 +322,83 @@ def map_columns(df: pd.DataFrame) -> Tuple[Dict[str, str], Dict[str, List[str]]]
         else:
             trust_buckets["missing_channels"].append(canonical)
 
+    maf_result = detect_maf_frequency(df)
+    if maf_result["status"] in {"CONFIRMED", "LIKELY"} and maf_result["matched_channel"]:
+        matched_raw_columns["MAF_Hz"] = maf_result["matched_channel"]
+        trust_buckets["confirmed_channels"].append("MAF_Hz" if maf_result["status"] == "CONFIRMED" else "MAF_Hz")
+    else:
+        trust_buckets["missing_channels"].append("MAF_Hz" if maf_result["status"] == "MISSING" else "MAF_Hz")
+        if maf_result["status"] == "SUSPECT":
+            trust_buckets["suspect_channels"].append("MAF_Hz")
+        else:
+            trust_buckets["uncertain_channels"].append("MAF_Hz")
+
+    wb_result = detect_wideband(df)
+    if wb_result["status"] in {"CONFIRMED", "LIKELY"} and wb_result["matched_channel"]:
+        matched_raw_columns[wb_result["target"]] = wb_result["matched_channel"]
+        trust_buckets["confirmed_channels"].append(wb_result["target"] if wb_result["status"] == "CONFIRMED" else wb_result["target"])
+    else:
+        trust_buckets["missing_channels"].extend(["WB_AFR", "WB_Lambda"])
+        if wb_result["status"] == "SUSPECT":
+            trust_buckets["suspect_channels"].append("WB_AFR")
+
     return matched_raw_columns, trust_buckets
+
+
+def detect_maf_frequency(df: pd.DataFrame) -> Dict[str, Any]:
+    best = {"score": -1, "status": "MISSING", "matched_channel": None, "reason": "no acceptable MAF frequency channel"}
+    for col in df.columns:
+        c = canonicalize_channel_name(col)
+        if any(tok in c for tok in MAF_REJECT_TOKENS):
+            continue
+        unit = classify_unit(col)
+        vals = series_numeric(df[col])
+        dynamic = _is_dynamic(vals)
+        exact = c in MAF_EXACT_ALIASES
+        strong = exact or "mass airflow" in c or "mass air flow" in c or ("maf" in c and unit == "hz")
+        if not strong:
+            continue
+        if unit in {"g/s", "lb/min", "lb/hr"}:
+            status, score, reason = "SUSPECT", 20, "name matches MAF alias but airflow-mass unit is not MAF frequency"
+        elif unit == "hz" and dynamic:
+            status, score, reason = "CONFIRMED", 100 + (10 if exact else 0), "MAF alias with Hz unit and dynamic numeric values"
+        elif unit == "unknown" and dynamic:
+            status, score, reason = "LIKELY", 70, "MAF alias with missing unit but frequency-like dynamic values"
+        else:
+            status, score, reason = "SUSPECT", 30, "MAF-like name but unit/behavior is conflicting or flatlined"
+        if score > best["score"]:
+            best = {"score": score, "status": status, "matched_channel": col, "reason": reason}
+    return best
+
+
+def detect_wideband(df: pd.DataFrame) -> Dict[str, Any]:
+    best = {"score": -1, "status": "MISSING", "matched_channel": None, "target": "WB_AFR", "reason": "no acceptable wideband channel"}
+    for col in df.columns:
+        c = canonicalize_channel_name(col)
+        if any(tok in f" {c} " for tok in WIDEBAND_REJECT_TOKENS):
+            continue
+        unit = classify_unit(col)
+        vals = series_numeric(df[col])
+        dynamic = _is_dynamic(vals)
+        strong = c in WIDEBAND_STRONG_ALIASES or any(a in c for a in WIDEBAND_STRONG_ALIASES)
+        brand = c in WIDEBAND_BRAND_ALIASES or any(a in c for a in WIDEBAND_BRAND_ALIASES)
+        analog = c in WIDEBAND_ANALOG_ALIASES or any(a in c for a in WIDEBAND_ANALOG_ALIASES)
+        if unit == "volts" and analog:
+            status, score, reason = "SUSPECT", 25, "analog input is voltage-only with no AFR/lambda transform proof"
+        elif (strong or analog) and unit in {"afr", "lambda"} and dynamic:
+            status, score, reason = "CONFIRMED", 120 if strong else 110, "wideband/analog alias with AFR/lambda unit and plausible dynamic values"
+        elif brand and unit in {"afr", "lambda"} and dynamic:
+            status, score, reason = "LIKELY", 90, "brand-like alias supports wideband but requires stronger transform/name proof"
+        elif strong and unit == "unknown" and dynamic:
+            status, score, reason = "LIKELY", 80, "strong wideband alias with plausible values but unit missing"
+        elif strong or analog or brand:
+            status, score, reason = "SUSPECT", 35, "wideband-like name exists but behavior/unit is insufficient"
+        else:
+            continue
+        target = "WB_Lambda" if unit == "lambda" else "WB_AFR"
+        if score > best["score"]:
+            best = {"score": score, "status": status, "matched_channel": col, "target": target, "reason": reason}
+    return best
 
 
 def forward_fill_sparse(series: pd.Series, max_gap: int = 8) -> pd.Series:
