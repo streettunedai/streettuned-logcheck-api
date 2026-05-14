@@ -625,6 +625,60 @@ def compute_wideband_trust(num: pd.DataFrame) -> Tuple[bool, str, List[str], Dic
     return True, "trusted", uncertain, diagnostics, wb_series
 
 
+
+
+def build_wideband_recovery_steps(
+    wideband_trusted: bool,
+    wideband_reason: str,
+    invalid_reasons: Dict[str, str],
+    wb_diag: Dict[str, Any],
+    platform_guess: str,
+) -> Optional[Dict[str, Any]]:
+    if wideband_trusted and "FuelPressure_psi" not in invalid_reasons:
+        return None
+
+    wb_channel = wb_diag.get("wideband_channel_used") or "WB channel"
+    wb_state = wb_diag.get("wideband_interpretation") or "unknown"
+
+    is_mopar = platform_guess == "mopar"
+    wb_name = "WB EQ Ratio 6 (SAE)" if is_mopar else wb_channel
+
+    changes_required: List[str] = [
+        "Open VCM Scanner and verify the wideband channel is in the Channels list, not only in a gauge/chart.",
+        f"Confirm {wb_name} moves live with engine running and does not stay frozen.",
+        "Validate analog/pro-link source assignment and transform math (lambda vs AFR conversion and voltage scaling).",
+        "Save the scanner channel config before logging.",
+        "Record a short native .hpl log first (idle, cruise, and one moderate pull) before any WOT hit.",
+        "Re-open the saved .hpl and confirm the wideband channel exists in playback.",
+    ]
+
+    if is_mopar:
+        changes_required.insert(
+            3,
+            "For Mopar, log WB actual, Commanded EQ Ratio, RPM, MAP, pedal/TPS/throttle actual, spark, KR, IAT, ECT, injector pulse width, actual/desired torque, gear, and slip in the same pull.",
+        )
+
+    verify_next: List[str] = [
+        "Channels list showing the wideband channel is selected for logging.",
+        "Wideband transform/math parameters screen.",
+        "MPVI Pro Link or analog input assignment screen.",
+        "Saved log playback screenshot with wideband visible.",
+    ]
+
+    if "FuelPressure_psi" in invalid_reasons:
+        changes_required.append("Fix fuel pressure source/transform separately; do not use flat-zero fuel pressure data for decisions.")
+
+    summary = (
+        f"Wideband visibility detected but trust is not confirmed (reason: {wideband_reason}; interpretation: {wb_state}). "
+        "This is usually a scanner channel, export, or transform/input assignment issue rather than a tune issue."
+    )
+
+    return {
+        "data_summary": summary,
+        "root_cause": "scanner_config_or_channel_assignment",
+        "changes_required": changes_required,
+        "verify_next": verify_next,
+    }
 def compute_throttle_diagnostics(num: pd.DataFrame) -> Dict[str, Any]:
     out: Dict[str, Any] = {
         "has_desired": "Throttle_Desired_pct" in num and num["Throttle_Desired_pct"].dropna().size > 0,
@@ -783,6 +837,14 @@ def analyze_dataframe(df: pd.DataFrame, meta: Dict[str, Any], platform_hint: Opt
         "kr_event_count": len(kr_events),
     }
 
+    recovery = build_wideband_recovery_steps(
+        wideband_trusted,
+        wideband_reason,
+        invalid_reasons,
+        wb_diag,
+        platform_details["platform_guess"],
+    )
+
     result = {
         "status": "ready" if not hard_stop_reasons else "limited",
         "filename": meta["filename"],
@@ -831,6 +893,8 @@ def analyze_dataframe(df: pd.DataFrame, meta: Dict[str, Any], platform_hint: Opt
     }
     result["conclusion_safety"]["safe_conclusions"] = [x for x in result["conclusion_safety"]["safe_conclusions"] if x]
     result["conclusion_safety"]["unsupported_conclusions"] = [x for x in result["conclusion_safety"]["unsupported_conclusions"] if x]
+    if recovery:
+        result["recovery_plan"] = recovery
 
     return result
 
