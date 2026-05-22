@@ -994,6 +994,13 @@ def analyze_dataframe(df: pd.DataFrame, meta: Dict[str, Any], platform_hint: Opt
         wb_diag,
     )
 
+    report_sections = build_report_sections(
+        meta=meta,
+        summary=summary,
+        trust_buckets=trust_buckets,
+        fueling_guidance=fueling_guidance,
+        kr_events=kr_events,
+    )
     result = {
         "status": "ready" if not hard_stop_reasons else "limited",
         "filename": meta["filename"],
