@@ -110,11 +110,14 @@ CANONICAL_ALIASES: Dict[str, List[str]] = {
         "Lambda Commanded",
         "EQ Ratio Commanded",
         "EQ Cmd",
+        "EQ Commanded",
+        "Fuel Commanded EQ",
     ],
     "AFR_Cmd": [
         "Air-Fuel Ratio Commanded",
         "Commanded AFR",
         "AFR Commanded",
+        "Desired AFR",
     ],
     "FuelSys1_Status": [
         "Fuel System #1 Status (SAE)",
@@ -289,6 +292,38 @@ CANONICAL_ALIASES: Dict[str, List[str]] = {
         "MAF Frequency",
         "MAF Airflow Frequency",
         "MAF Hz",
+    ],
+    "MAF_lb_min": [
+        "Airflow",
+        "MAF Airflow Rate",
+        "MAF Airflow",
+        "Mass Airflow",
+        "Mass Airflow Rate",
+        "MAF",
+    ],
+    "CylAir_g": [
+        "Cylinder Airmass",
+        "Cylinder Air Mass",
+        "Airmass",
+        "Airmass per Cylinder",
+    ],
+    "TransTemp_C": [
+        "Trans Temp",
+        "Transmission Fluid Temp",
+        "Transmission Temperature",
+    ],
+    "System_Volts": [
+        "Voltage",
+        "System Voltage",
+        "Battery Voltage",
+    ],
+    "OilPressure_psi": [
+        "Oil Pressure (PSI)",
+        "Engine Oil Pressure (PSI)",
+    ],
+    "FuelPressure_psi": [
+        "Fuel Pressure (PSI)",
+        "Fuel PSI",
     ],
 }
 
@@ -518,7 +553,7 @@ def summarize_kr_window(num: pd.DataFrame, effective: pd.Series, start: int, end
         event["start_time_sec"] = float(ts.iloc[0]) if safe_float(ts.iloc[0]) is not None else None
         event["end_time_sec"] = float(ts.iloc[-1]) if safe_float(ts.iloc[-1]) is not None else None
 
-    for ch in ["RPM", "MAP_kPa", "TPS_pct", "Spark_deg"]:
+    for ch in ["RPM", "MAP_kPa", "TPS_pct", "Spark_deg", "IAT_C", "MAF_lb_min", "CylAir_g"]:
         if ch in num and num[ch].loc[start:end].notna().any():
             arr = num[ch].loc[start:end]
             event[ch] = {
@@ -556,6 +591,69 @@ def extract_kr_events(num: pd.DataFrame) -> List[Dict[str, Any]]:
         events.append(summarize_kr_window(num, effective, start, int(num.index.max())))
 
     return events
+
+
+def build_channel_details(num: pd.DataFrame, matched: Dict[str, str], trust_buckets: Dict[str, List[str]]) -> List[Dict[str, Any]]:
+    details: List[Dict[str, Any]] = []
+    confirmed = set(trust_buckets.get("confirmed_channels", []))
+    uncertain = set(trust_buckets.get("uncertain_channels", []))
+    suspect = set(trust_buckets.get("suspect_channels", []))
+    missing = set(trust_buckets.get("missing_channels", []))
+    for canonical in sorted(set(list(matched.keys()) + list(num.columns))):
+        if canonical in num and num[canonical].dropna().size:
+            s = num[canonical].dropna()
+            details.append(
+                {
+                    "channel_name": canonical,
+                    "unit": "kPa" if canonical.endswith("_kPa") else ("deg" if canonical.endswith("_deg") else None),
+                    "min": float(s.min()),
+                    "max": float(s.max()),
+                    "confidence": "CONFIRMED" if canonical in confirmed else ("SUSPECT" if canonical in suspect else ("LIKELY" if canonical in uncertain else "CONFIRMED")),
+                    "reason": "matched_and_numeric",
+                }
+            )
+        elif canonical in missing:
+            details.append({"channel_name": canonical, "confidence": "MISSING", "reason": "not_found_or_not_usable"})
+    return details
+
+
+def build_segment_summary(num: pd.DataFrame) -> Dict[str, Any]:
+    segments: List[str] = []
+    if {"RPM", "TPS_pct"}.issubset(set(num.columns)):
+        rpm = num["RPM"]
+        tps = num["TPS_pct"]
+        if ((rpm < IDLE_RPM_MAX) & (tps <= 10)).fillna(False).any():
+            segments.append("idle_low_load")
+        if ((tps >= 15) & (tps < 55)).fillna(False).any():
+            segments.append("cruise_part_throttle")
+        if (tps >= 75).fillna(False).any():
+            segments.append("high_load_near_wot_pull")
+    max_map = float(num["MAP_kPa"].dropna().max()) if "MAP_kPa" in num and num["MAP_kPa"].dropna().size else None
+    return {
+        "segments_found": segments,
+        "max_map_kpa": max_map,
+        "boost_review_supported": bool(max_map is not None and max_map > 105.0),
+        "likely_na_from_map": bool(max_map is not None and max_map <= 105.0),
+    }
+
+
+def build_safety_edit_recommendation(kr_events: List[Dict[str, Any]]) -> Dict[str, Any]:
+    high_load_events = 0
+    peak = 0.0
+    for ev in kr_events:
+        kr = float(ev.get("peak_kr_deg") or 0.0)
+        tps_max = (((ev.get("TPS_pct") or {}).get("max")) if isinstance(ev.get("TPS_pct"), dict) else None) or 0.0
+        map_max = (((ev.get("MAP_kPa") or {}).get("max")) if isinstance(ev.get("MAP_kPa"), dict) else None) or 0.0
+        if kr > 3.0 and tps_max >= 70 and map_max >= 90:
+            high_load_events += 1
+            peak = max(peak, kr)
+    if high_load_events >= 2:
+        return {
+            "kr_status": "HARD_STOP_PERFORMANCE_TUNING",
+            "reason": f"repeated_high_load_kr_over_3deg_peak_{peak:.2f}",
+            "safety_only_spark_edit": {"spark_delta_deg": -2.0, "rpm_range": [4800, 6400], "cyl_airmass_g_per_cyl_range": [0.70, 0.82]},
+        }
+    return {"kr_status": "NO_HARD_STOP_KR_PATTERN"}
 
 
 def compute_wideband_trust(num: pd.DataFrame) -> Tuple[bool, str, List[str], Dict[str, Any], Optional[pd.Series]]:
@@ -632,7 +730,6 @@ def build_wideband_recovery_steps(
     wideband_reason: str,
     invalid_reasons: Dict[str, str],
     wb_diag: Dict[str, Any],
-    platform_guess: str,
 ) -> Optional[Dict[str, Any]]:
     if wideband_trusted and "FuelPressure_psi" not in invalid_reasons:
         return None
@@ -640,8 +737,7 @@ def build_wideband_recovery_steps(
     wb_channel = wb_diag.get("wideband_channel_used") or "WB channel"
     wb_state = wb_diag.get("wideband_interpretation") or "unknown"
 
-    is_mopar = platform_guess == "mopar"
-    wb_name = "WB EQ Ratio 6 (SAE)" if is_mopar else wb_channel
+    wb_name = wb_channel
 
     changes_required: List[str] = [
         "Open VCM Scanner and verify the wideband channel is in the Channels list, not only in a gauge/chart.",
@@ -651,12 +747,6 @@ def build_wideband_recovery_steps(
         "Record a short native .hpl log first (idle, cruise, and one moderate pull) before any WOT hit.",
         "Re-open the saved .hpl and confirm the wideband channel exists in playback.",
     ]
-
-    if is_mopar:
-        changes_required.insert(
-            3,
-            "For Mopar, log WB actual, Commanded EQ Ratio, RPM, MAP, pedal/TPS/throttle actual, spark, KR, IAT, ECT, injector pulse width, actual/desired torque, gear, and slip in the same pull.",
-        )
 
     verify_next: List[str] = [
         "Channels list showing the wideband channel is selected for logging.",
@@ -751,6 +841,53 @@ def avg_bank_trims(num: pd.DataFrame) -> Optional[pd.Series]:
     return stacked.mean(axis=1, skipna=True)
 
 
+def _range_for(num: pd.DataFrame, channel: str) -> Optional[Dict[str, float]]:
+    if channel not in num or num[channel].dropna().empty:
+        return None
+    s = num[channel].dropna()
+    return {"min": float(s.min()), "max": float(s.max())}
+
+
+def build_detailed_report_payload(
+    num: pd.DataFrame,
+    summary: Dict[str, Any],
+    trust_buckets: Dict[str, List[str]],
+    kr_events: List[Dict[str, Any]],
+    per_bank_trim_summary: Dict[str, Any],
+) -> Dict[str, Any]:
+    confirmed_ranges = {
+        "RPM": _range_for(num, "RPM"),
+        "TPS_pct": _range_for(num, "TPS_pct"),
+        "MAP_kPa": _range_for(num, "MAP_kPa"),
+        "MAF_lb_min": _range_for(num, "MAF_lb_min"),
+        "MAF_Hz": _range_for(num, "MAF_Hz"),
+        "CylAir_g": _range_for(num, "CylAir_g"),
+        "AFR_Cmd": _range_for(num, "AFR_Cmd"),
+        "EQ_Cmd": _range_for(num, "EQ_Cmd"),
+        "KR_deg": _range_for(num, "KR_deg") or _range_for(num, "TotalKR_deg"),
+        "Spark_deg": _range_for(num, "Spark_deg"),
+    }
+    missing = sorted(
+        set(trust_buckets.get("missing_channels", []))
+        | set(trust_buckets.get("invalid_channels", []))
+        | set(trust_buckets.get("uncertain_channels", []))
+    )
+    return {
+        "report_version": "lslt_detailed_v1",
+        "map_interpretation": {
+            "max_map_kpa": summary.get("max_map_kpa"),
+            "likely_na_from_map": bool((summary.get("max_map_kpa") or 0) <= 105),
+            "boost_supported_by_log": bool((summary.get("max_map_kpa") or 0) > 105),
+        },
+        "commanded_fueling_detected": bool(summary.get("has_commanded_fueling_channel")),
+        "confirmed_channel_ranges": confirmed_ranges,
+        "missing_or_unreliable_channels": missing,
+        "per_bank_trim_summary": per_bank_trim_summary,
+        "kr_event_windows": kr_events,
+        "recommended_safe_spark_action": build_safety_edit_recommendation(kr_events),
+    }
+
+
 def analyze_dataframe(df: pd.DataFrame, meta: Dict[str, Any], platform_hint: Optional[str] = None) -> Dict[str, Any]:
     matched_raw_columns, trust_buckets = map_columns(df)
     num, invalid_reasons, pressure_unit_modes = build_numeric_frame(df, matched_raw_columns)
@@ -767,7 +904,6 @@ def analyze_dataframe(df: pd.DataFrame, meta: Dict[str, Any], platform_hint: Opt
 
     operating_mode = determine_operating_mode(num)
     analysis_scope = build_analysis_scope(matched_raw_columns, operating_mode)
-    platform_details = detect_platform_guess(list(df.columns), platform_hint=platform_hint)
     kr_events = extract_kr_events(num)
     throttle_diag = compute_throttle_diagnostics(num)
     map_boost_conflict = compute_map_boost_conflict(num)
@@ -797,6 +933,16 @@ def analyze_dataframe(df: pd.DataFrame, meta: Dict[str, Any], platform_hint: Opt
             "min_trim_pct": float(trim_series.min()),
             "max_trim_pct": float(trim_series.max()),
         }
+    per_bank_trim_summary: Dict[str, Any] = {}
+    for b in ("1", "2"):
+        st = num[f"STFT{b}_pct"].dropna() if f"STFT{b}_pct" in num else pd.Series(dtype=float)
+        lt = num[f"LTFT{b}_pct"].dropna() if f"LTFT{b}_pct" in num else pd.Series(dtype=float)
+        if st.size or lt.size:
+            per_bank_trim_summary[f"bank_{b}"] = {
+                "stft_avg_pct": float(st.mean()) if st.size else None,
+                "ltft_avg_pct": float(lt.mean()) if lt.size else None,
+                "ltft_locked_zero": bool(lt.size and float((lt.abs() < 1e-9).mean()) > 0.95),
+            }
 
     fueling_guidance: Dict[str, Any] = {
         "can_make_closed_loop_trim_based_suggestions": trim_series is not None and trim_series.dropna().size > 0,
@@ -835,6 +981,10 @@ def analyze_dataframe(df: pd.DataFrame, meta: Dict[str, Any], platform_hint: Opt
         "max_map_kpa": operating_mode.get("max_map_kpa"),
         "log_duration_sec": calc_log_duration(num),
         "kr_event_count": len(kr_events),
+        "has_commanded_fueling_channel": bool(
+            ("EQ_Cmd" in matched_raw_columns and num.get("EQ_Cmd", pd.Series(dtype=float)).dropna().size > 0)
+            or ("AFR_Cmd" in matched_raw_columns and num.get("AFR_Cmd", pd.Series(dtype=float)).dropna().size > 0)
+        ),
     }
 
     recovery = build_wideband_recovery_steps(
@@ -842,7 +992,6 @@ def analyze_dataframe(df: pd.DataFrame, meta: Dict[str, Any], platform_hint: Opt
         wideband_reason,
         invalid_reasons,
         wb_diag,
-        platform_details["platform_guess"],
     )
 
     result = {
@@ -865,11 +1014,13 @@ def analyze_dataframe(df: pd.DataFrame, meta: Dict[str, Any], platform_hint: Opt
         "throttle_diagnostics": throttle_diag,
         "map_boost_conflict": map_boost_conflict,
         "trim_summary": trim_summary,
+        "per_bank_trim_summary": per_bank_trim_summary,
         "kr_events": kr_events,
+        "kr_safety_recommendation": build_safety_edit_recommendation(kr_events),
+        "channel_details": build_channel_details(num, matched_raw_columns, trust_buckets),
+        "segment_summary": build_segment_summary(num),
         "fueling_guidance": fueling_guidance,
         "notes": notes,
-        "platform_guess": platform_details["platform_guess"],
-        "platform_detection": platform_details,
         "analysis_scope": analysis_scope,
         "readable_data": {
             "confirmed": sorted(trust_buckets.get("confirmed_channels", [])),
@@ -890,6 +1041,20 @@ def analyze_dataframe(df: pd.DataFrame, meta: Dict[str, Any], platform_hint: Opt
                 "Transmission correction conclusions are limited." if not analysis_scope["transmission_review"] else None,
             ],
         },
+        "detailed_report": build_detailed_report_payload(
+            num=num,
+            summary=summary,
+            trust_buckets=trust_buckets,
+            kr_events=kr_events,
+            per_bank_trim_summary=per_bank_trim_summary,
+        ),
+        "report_sections": build_report_sections(
+            meta=meta,
+            summary=summary,
+            trust_buckets=trust_buckets,
+            fueling_guidance=fueling_guidance,
+            kr_events=kr_events,
+        ),
     }
     result["conclusion_safety"]["safe_conclusions"] = [x for x in result["conclusion_safety"]["safe_conclusions"] if x]
     result["conclusion_safety"]["unsupported_conclusions"] = [x for x in result["conclusion_safety"]["unsupported_conclusions"] if x]
@@ -914,7 +1079,6 @@ def validate_dataframe(
 
     operating_mode = determine_operating_mode(num)
     analysis_scope = build_analysis_scope(matched_raw_columns, operating_mode)
-    platform_details = detect_platform_guess(list(df.columns), platform_hint=platform_hint)
     trust_buckets = finalize_trust_buckets(trust_buckets, invalid_reasons, [], [])
 
     return {
@@ -932,32 +1096,52 @@ def validate_dataframe(
         "trust_buckets": trust_buckets,
         "invalid_channel_reasons": invalid_reasons,
         "hard_stop_reasons": hard_stop_reasons,
-        "platform_guess": platform_details["platform_guess"],
-        "platform_detection": platform_details,
         "analysis_scope": analysis_scope,
         "capability_flags": analysis_scope,
     }
-MOPAR_PLATFORM_MARKERS = {
-    "Engine RPM",
-    "Engine Speed",
-    "Throttle Angle",
-    "Ignition Advance",
-    "Spark Retard",
-    "Commanded Lambda",
-    "Driver Desired Torque",
-    "Current Gear",
-}
 
-
-def detect_platform_guess(columns: List[str], platform_hint: Optional[str] = None) -> Dict[str, Any]:
-    normalized = {str(c).strip().lower() for c in columns}
-    marker_hits = [m for m in MOPAR_PLATFORM_MARKERS if m.lower() in normalized]
-    score = len(marker_hits)
-    hint = (platform_hint or "").strip().lower()
-    if hint == "mopar":
-        score += 1
-    guess = "mopar" if score >= 3 else None
-    return {"platform_guess": guess, "mopar_score": score, "mopar_hits": marker_hits}
+def build_report_sections(
+    meta: Dict[str, Any],
+    summary: Dict[str, Any],
+    trust_buckets: Dict[str, List[str]],
+    fueling_guidance: Dict[str, Any],
+    kr_events: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    return {
+        "what_i_received": {
+            "filename": meta.get("filename"),
+            "row_count": meta.get("row_count"),
+            "column_count": meta.get("column_count"),
+            "log_duration_sec": summary.get("log_duration_sec"),
+        },
+        "what_i_see": {
+            "confirmed_channels": sorted(trust_buckets.get("confirmed_channels", [])),
+            "missing_or_unreliable": sorted(
+                set(trust_buckets.get("missing_channels", []))
+                | set(trust_buckets.get("invalid_channels", []))
+                | set(trust_buckets.get("uncertain_channels", []))
+            ),
+            "max_map_kpa": summary.get("max_map_kpa"),
+            "kr_event_count": len(kr_events),
+            "commanded_fueling_detected": bool(summary.get("has_commanded_fueling_channel")),
+        },
+        "edits": {
+            "wot_fueling_allowed": bool(fueling_guidance.get("can_make_wot_fueling_suggestions")),
+            "wot_fueling_reason": fueling_guidance.get("reason_wot_fueling_limited"),
+            "safe_spark_action": build_safety_edit_recommendation(kr_events),
+        },
+        "do_not_touch": [
+            "Do not make WOT fuel edits without trusted wideband actual.",
+            "Do not add timing while repeated KR is present.",
+            "Do not tune VE/MAF from suspect or conflicting MAP/boost data.",
+        ],
+        "next_log_plan": [
+            "Log wideband AFR/lambda as a transformed channel.",
+            "Log commanded AFR/EQ.",
+            "Log RPM, TPS, MAP, KR, spark, MAF Hz, MAF airflow, and cylinder airmass.",
+            "Re-log after safety spark change before any power optimization.",
+        ],
+    }
 
 
 def build_analysis_scope(matched: Dict[str, str], operating_mode: Dict[str, Any]) -> Dict[str, bool]:
@@ -966,7 +1150,8 @@ def build_analysis_scope(matched: Dict[str, str], operating_mode: Dict[str, Any]
     has_tps = "TPS_pct" in matched or "Pedal_pct" in matched
     has_gear = "Gear" in matched or "InputSpeed_rpm" in matched or "OutputSpeed_rpm" in matched
     has_kr = "KR_deg" in matched or "TotalKR_deg" in matched
-    has_wot_fuel = ("EQ_Cmd" in matched) and ("WB_AFR" in matched or "WB_Lambda" in matched)
+    has_commanded_fuel = ("EQ_Cmd" in matched) or ("AFR_Cmd" in matched)
+    has_wot_fuel = has_commanded_fuel and ("WB_AFR" in matched or "WB_Lambda" in matched)
     return {
         "basic_engine_review": has_rpm and has_map,
         "idle_review": has_rpm and has_tps and bool(operating_mode.get("idle_detected")),
