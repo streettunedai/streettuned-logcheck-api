@@ -1072,8 +1072,13 @@ def analyze_dataframe(df: pd.DataFrame, meta: Dict[str, Any], platform_hint: Opt
             kr_events=kr_events,
             per_bank_trim_summary=per_bank_trim_summary,
         ),
-        "report_sections": report_sections,
-        "tuner_grade_report": build_tuner_grade_report_text(meta=meta, summary=summary, report_sections=report_sections),
+        "report_sections": build_report_sections(
+            meta=meta,
+            summary=summary,
+            trust_buckets=trust_buckets,
+            fueling_guidance=fueling_guidance,
+            kr_events=kr_events,
+        ),
     }
     result["conclusion_safety"]["safe_conclusions"] = [x for x in result["conclusion_safety"]["safe_conclusions"] if x]
     result["conclusion_safety"]["unsupported_conclusions"] = [x for x in result["conclusion_safety"]["unsupported_conclusions"] if x]
@@ -1234,38 +1239,6 @@ def build_report_sections(
             "Log RPM, TPS, MAP, KR, spark, MAF Hz, MAF airflow, and cylinder airmass.",
             "Re-log after safety spark change before any power optimization.",
         ],
-    }
-
-
-def build_tuner_grade_report_text(
-    meta: Dict[str, Any],
-    summary: Dict[str, Any],
-    report_sections: Dict[str, Any],
-) -> Dict[str, str]:
-    rec = report_sections.get("what_i_received", {})
-    see = report_sections.get("what_i_see", {})
-    edits = report_sections.get("what_can_be_edited", {})
-    dnt = report_sections.get("do_not_touch", [])
-    nxt = report_sections.get("next_log_plan", [])
-    hr = report_sections.get("hard_stops", {})
-    return {
-        "what_i_received": (
-            f"File: {rec.get('filename')}. Rows: {rec.get('row_count')}. Columns: {rec.get('column_count')}. "
-            f"Duration: {summary.get('log_duration_sec')}. Scope: LS/LT gasoline log review. "
-            "I cannot confirm this from the uploaded file: combo, hardware, airflow strategy, or fuel system details."
-        ),
-        "what_i_see": (
-            f"Confirmed channels: {', '.join(see.get('confirmed_channels', [])) or 'none'}. "
-            f"Missing/unreliable: {', '.join(see.get('missing_or_unreliable', [])) or 'none'}. "
-            f"KR events detected: {see.get('kr_event_count')}. Max MAP kPa: {see.get('max_map_kpa')}."
-        ),
-        "edits": (
-            f"Hard stops active: KR={hr.get('kr_hard_stop')}, WOT fueling blocked={hr.get('wot_fueling_blocked')}, "
-            f"MAP/VE blocked={hr.get('map_ve_blocked')}. Allowed now: {', '.join(edits.get('allowed_now', []))}. "
-            f"Blocked now: {', '.join(edits.get('blocked_now', []))}."
-        ),
-        "do_not_touch": " | ".join(dnt) if dnt else "Do not make power-adding or unsupported edits from this log.",
-        "next_log_plan": " | ".join(nxt) if nxt else "Re-log with wideband, commanded fueling, and core load channels.",
     }
 
 

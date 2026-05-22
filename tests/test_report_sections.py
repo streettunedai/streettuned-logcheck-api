@@ -1,6 +1,6 @@
 import unittest
 
-from app.analyzers.ls_gas import build_report_sections, build_tuner_grade_report_text
+from app.analyzers.ls_gas import build_report_sections
 
 
 class TestReportSections(unittest.TestCase):
@@ -22,14 +22,6 @@ class TestReportSections(unittest.TestCase):
         self.assertIn("what_can_be_edited", sections)
         self.assertTrue(sections["what_i_see"]["why_hard_stop_matters"])
         self.assertTrue(sections["what_i_see"]["likely_causes_to_inspect"])
-        text = build_tuner_grade_report_text(
-            meta={"filename": "i75.csv"},
-            summary={"log_duration_sec": 120.0},
-            report_sections=sections,
-        )
-        self.assertIn("what_i_received", text)
-        self.assertIn("what_i_see", text)
-        self.assertIn("edits", text)
 
 
 if __name__ == "__main__":
