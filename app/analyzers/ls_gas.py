@@ -1121,21 +1121,26 @@ def build_report_sections(
             "MAP evidence is incomplete, so load/VE conclusions are limited."
         )
 
+    confirmed_channels = sorted(trust_buckets.get("confirmed_channels", []))
+    missing_or_unreliable = sorted(
+        set(trust_buckets.get("missing_channels", []))
+        | set(trust_buckets.get("invalid_channels", []))
+        | set(trust_buckets.get("uncertain_channels", []))
+    )
+    max_map = summary.get("max_map_kpa")
+    wot_allowed = bool(fueling_guidance.get("can_make_wot_fueling_suggestions"))
     return {
         "what_i_received": {
             "filename": meta.get("filename"),
             "row_count": meta.get("row_count"),
             "column_count": meta.get("column_count"),
             "log_duration_sec": summary.get("log_duration_sec"),
+            "scope": "LS/LT gasoline log diagnostic review",
         },
         "what_i_see": {
-            "confirmed_channels": sorted(trust_buckets.get("confirmed_channels", [])),
-            "missing_or_unreliable": sorted(
-                set(trust_buckets.get("missing_channels", []))
-                | set(trust_buckets.get("invalid_channels", []))
-                | set(trust_buckets.get("uncertain_channels", []))
-            ),
-            "max_map_kpa": summary.get("max_map_kpa"),
+            "confirmed_channels": confirmed_channels,
+            "missing_or_unreliable": missing_or_unreliable,
+            "max_map_kpa": max_map,
             "kr_event_count": len(kr_events),
             "commanded_fueling_detected": bool(summary.get("has_commanded_fueling_channel")),
             "why_hard_stop_matters": hard_stop_explanations,
@@ -1149,10 +1154,42 @@ def build_report_sections(
                 "MAF scaling or airflow model error when trim trends support it.",
             ],
         },
-        "edits": {
-            "wot_fueling_allowed": bool(fueling_guidance.get("can_make_wot_fueling_suggestions")),
+        "hard_stops": {
+            "kr_hard_stop": bool(len(kr_events) > 0),
+            "wot_fueling_blocked": not wot_allowed,
+            "map_ve_blocked": bool(max_map is None),
+            "reasons": hard_stop_explanations,
+        },
+        "fueling_read": {
+            "commanded_fueling_detected": bool(summary.get("has_commanded_fueling_channel")),
+            "wot_fueling_allowed": wot_allowed,
             "wot_fueling_reason": fueling_guidance.get("reason_wot_fueling_limited"),
+            "tuner_interpretation": "Use trims for trend direction only; do not finalize WOT fueling without trusted wideband actual aligned to commanded fueling.",
+        },
+        "timing_kr_read": {
+            "kr_event_count": len(kr_events),
             "safe_spark_action": build_safety_edit_recommendation(kr_events),
+            "tuner_interpretation": "Repeated KR under load is a safety constraint first; remove risk before chasing power.",
+        },
+        "airflow_maf_map_read": {
+            "max_map_kpa": max_map,
+            "map_supports_boost_review": bool((max_map or 0) > 105),
+            "maf_map_tuner_interpretation": "Use MAP/MAF only when channel trust is stable and non-conflicting; avoid VE/load edits when MAP evidence is suspect.",
+        },
+        "temperature_heat_risk": {
+            "heat_risk_present": True,
+            "tuner_interpretation": "IAT/ECT trends must be reviewed with KR timing context; heat soak can amplify knock sensitivity.",
+        },
+        "what_can_be_edited": {
+            "allowed_now": [
+                "Safety-only spark reduction in repeated KR zones (if KR pattern supports it).",
+                "Non-power diagnostic/logging setup corrections.",
+            ],
+            "blocked_now": [
+                "WOT fueling changes without trusted wideband actual.",
+                "VE/load corrections from suspect MAP evidence.",
+                "Power-adding spark changes while KR is active.",
+            ],
         },
         "do_not_touch": [
             "Do not make WOT fuel edits without trusted wideband actual.",

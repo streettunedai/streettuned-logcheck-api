@@ -14,6 +14,12 @@ class TestReportSections(unittest.TestCase):
         )
         self.assertIn("what_this_log_can_be_used_for", sections)
         self.assertIn("what_this_log_cannot_prove", sections)
+        self.assertIn("hard_stops", sections)
+        self.assertIn("fueling_read", sections)
+        self.assertIn("timing_kr_read", sections)
+        self.assertIn("airflow_maf_map_read", sections)
+        self.assertIn("temperature_heat_risk", sections)
+        self.assertIn("what_can_be_edited", sections)
         self.assertTrue(sections["what_i_see"]["why_hard_stop_matters"])
         self.assertTrue(sections["what_i_see"]["likely_causes_to_inspect"])
 
