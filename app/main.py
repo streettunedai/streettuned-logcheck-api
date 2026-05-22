@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, Tuple
 
 from fastapi import FastAPI, HTTPException, Request
@@ -23,19 +24,35 @@ from app.core.parser import parse_csv_bytes
 app = FastAPI(title="StreetTunedAI LogCheck API", version="1.2.0")
 
 
+STRICT_PLATFORM = (os.getenv("STRICT_PLATFORM") or "").strip().lower()
+
+
 def resolve_platform(request: Request, platform_hint: str | None = None) -> str:
     platform = (request.query_params.get("platform") or "auto").strip().lower()
     if platform in {"ls", "ls_gas"}:
-        return "ls"
-    if platform == "mopar":
-        return "ls"
-    if platform == "duramax":
-        return "duramax"
-    if platform in {"cummins", "cummins_12v_ve", "cummins_12v_ppump", "cummins_24v_vp44", "cummins_5_9_common_rail", "auto"}:
-        return platform
-    if platform == "auto" and (platform_hint or "").strip().lower() == "mopar":
-        return "auto"
-    raise HTTPException(status_code=400, detail=f"Unsupported platform '{platform}'.")
+        resolved = "ls"
+    elif platform == "mopar":
+        resolved = "ls"
+    elif platform == "duramax":
+        resolved = "duramax"
+    elif platform in {"cummins", "cummins_12v_ve", "cummins_12v_ppump", "cummins_24v_vp44", "cummins_5_9_common_rail", "auto"}:
+        resolved = platform
+    elif platform == "auto" and (platform_hint or "").strip().lower() == "mopar":
+        resolved = "auto"
+    else:
+        raise HTTPException(status_code=400, detail=f"Unsupported platform '{platform}'.")
+
+    if STRICT_PLATFORM and resolved != STRICT_PLATFORM:
+        raise HTTPException(
+            status_code=400,
+            detail=f"This API endpoint is dedicated to '{STRICT_PLATFORM}' logs only. Requested platform '{platform}' is not allowed.",
+        )
+    if STRICT_PLATFORM and resolved == "auto":
+        raise HTTPException(
+            status_code=400,
+            detail=f"This API endpoint is dedicated to '{STRICT_PLATFORM}' logs only. Use '?platform={STRICT_PLATFORM}' explicitly.",
+        )
+    return resolved
 
 
 def get_platform_handlers(platform: str) -> Tuple[Dict[str, Any], Any, Any]:
