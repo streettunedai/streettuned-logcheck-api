@@ -357,6 +357,20 @@ def map_columns(df: pd.DataFrame) -> Tuple[Dict[str, str], Dict[str, List[str]]]
         else:
             trust_buckets["missing_channels"].append(canonical)
 
+    # Prevent self-conflict when MAP and Boost aliases resolve to the same raw column.
+    # In many HPT logs, "Boost/Vacuum" is actually MAP absolute; treating it as both
+    # MAP and Boost can incorrectly mark MAP as suspect later.
+    if (
+        "MAP_kPa" in matched_raw_columns
+        and "Boost_kPa" in matched_raw_columns
+        and matched_raw_columns["MAP_kPa"] == matched_raw_columns["Boost_kPa"]
+    ):
+        matched_raw_columns.pop("Boost_kPa", None)
+        if "Boost_kPa" in trust_buckets["confirmed_channels"]:
+            trust_buckets["confirmed_channels"].remove("Boost_kPa")
+        if "Boost_kPa" not in trust_buckets["missing_channels"]:
+            trust_buckets["missing_channels"].append("Boost_kPa")
+
     maf_result = detect_maf_frequency(df)
     if maf_result["status"] in {"CONFIRMED", "LIKELY"} and maf_result["matched_channel"]:
         matched_raw_columns["MAF_Hz"] = maf_result["matched_channel"]
@@ -569,9 +583,12 @@ def extract_kr_events(num: pd.DataFrame) -> List[Dict[str, Any]]:
     if "KR_deg" not in num and "TotalKR_deg" not in num:
         return []
 
-    kr = num["KR_deg"] if "KR_deg" in num else pd.Series(np.nan, index=num.index)
-    tkr = num["TotalKR_deg"] if "TotalKR_deg" in num else pd.Series(np.nan, index=num.index)
-    effective = pd.concat([kr, tkr], axis=1).max(axis=1, skipna=True)
+    # Prefer primary KR channel when present; only fall back to TotalKR when needed.
+    # This avoids inflating KR severity when TotalKR is noisy or computed differently.
+    if "KR_deg" in num and num["KR_deg"].dropna().size:
+        effective = num["KR_deg"].copy()
+    else:
+        effective = num["TotalKR_deg"].copy() if "TotalKR_deg" in num else pd.Series(np.nan, index=num.index)
     mask = effective.fillna(0) > 0.5
 
     events: List[Dict[str, Any]] = []
