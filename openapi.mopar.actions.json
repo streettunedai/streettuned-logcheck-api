@@ -1,0 +1,169 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "StreetTunedAI Mopar Logcheck API",
+    "version": "0.1.0",
+    "description": "Mopar-only HP Tuners log validation and analysis API."
+  },
+  "servers": [
+    {
+      "url": "https://streettuned-mopar-logcheck-api.onrender.com"
+    }
+  ],
+  "paths": {
+    "/validate": {
+      "post": {
+        "operationId": "validateMoparLog",
+        "summary": "Validate an uploaded Mopar HP Tuners log.",
+        "description": "Call this first for every uploaded Mopar log. If ok is true, call /analyze next.",
+        "x-openai-isConsequential": false,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MoparLogRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Structured validation result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MoparApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analyze": {
+      "post": {
+        "operationId": "analyzeMoparLog",
+        "summary": "Analyze an uploaded Mopar HP Tuners log.",
+        "description": "Call only after /validate returns ok true.",
+        "x-openai-isConsequential": false,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MoparLogRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Structured Mopar analysis result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MoparApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "MoparLogRequest": {
+        "type": "object",
+        "properties": {
+          "openaiFileIdRefs": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                { "type": "string" },
+                { "$ref": "#/components/schemas/FileReference" }
+              ]
+            }
+          },
+          "file": {
+            "oneOf": [
+              { "type": "string" },
+              { "$ref": "#/components/schemas/FileReference" }
+            ]
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                { "type": "string" },
+                { "$ref": "#/components/schemas/FileReference" }
+              ]
+            }
+          },
+          "platform_hint": {
+            "type": "string",
+            "enum": ["mopar"],
+            "default": "mopar"
+          },
+          "question": { "type": "string" },
+          "vehicle_context": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": true
+      },
+      "FileReference": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "id": { "type": "string" },
+          "file_id": { "type": "string" },
+          "openaiFileId": { "type": "string" },
+          "openai_file_id": { "type": "string" },
+          "download_link": { "type": "string" },
+          "downloadLink": { "type": "string" },
+          "signed_url": { "type": "string" },
+          "url": { "type": "string" }
+        },
+        "additionalProperties": true
+      },
+      "MoparApiResponse": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean" },
+          "stage": { "type": "string", "enum": ["validate", "analyze"] },
+          "status": { "type": "string", "enum": ["PASS", "PARTIAL_PASS", "FAIL"] },
+          "error_code": { "type": ["string", "null"] },
+          "message": { "type": "string" },
+          "platform": { "type": ["string", "null"] },
+          "rows": { "type": ["integer", "null"] },
+          "columns": { "type": "array", "items": { "type": "string" } },
+          "detected_channels": { "type": "object", "additionalProperties": { "type": "string" } },
+          "readable_scope": { "$ref": "#/components/schemas/CapabilityFlags" },
+          "confirmed_readable_data": { "type": "array", "items": { "type": "string" } },
+          "missing_or_unreliable_data": { "type": "array", "items": { "type": "string" } },
+          "safe_conclusions": { "type": "array", "items": { "type": "string" } },
+          "unsupported_conclusions": { "type": "array", "items": { "type": "string" } },
+          "response": { "type": ["string", "null"] }
+        },
+        "required": ["ok", "stage", "status", "message"],
+        "additionalProperties": true
+      },
+      "CapabilityFlags": {
+        "type": "object",
+        "properties": {
+          "basic_engine_review": { "type": "boolean" },
+          "idle_review": { "type": "boolean" },
+          "cruise_review": { "type": "boolean" },
+          "shift_review": { "type": "boolean" },
+          "knock_review": { "type": "boolean" },
+          "wot_fueling_review": { "type": "boolean" },
+          "transmission_review": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}
